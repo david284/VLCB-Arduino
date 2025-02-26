@@ -11,17 +11,11 @@
 namespace VLCB
 {
 
-void MinimumNodeService::setController(Controller *cntrl)
-{
-  this->controller = cntrl;
-  this->module_config = cntrl->getModuleConfig();
-}
-
 void MinimumNodeService::begin()
 {
   //Initialise instantMode
-  instantMode = module_config->currentMode;
-  noHeartbeat = !module_config->heartbeat;
+  instantMode = controller->getModuleConfig()->currentMode;
+  noHeartbeat = !controller->getModuleConfig()->heartbeat;
   controller->indicateMode(instantMode);
   //DEBUG_SERIAL << F("> instant MODE initialise as: ") << instantMode << endl;
 }
@@ -29,31 +23,33 @@ void MinimumNodeService::begin()
 //
 /// initiate the transition from Uninitialised to Normal mode
 //
-void MinimumNodeService::initSetup()
+void MinimumNodeService::initSetupFromUninitialised()
 {
   // DEBUG_SERIAL << F("> initiating Normal negotation") << endl;
 
-  instantMode = MODE_SETUP;
-  controller->indicateMode(MODE_SETUP);
-
-  timeOutTimer = millis();
-  
   // enumerate the CAN bus to allocate a free CAN ID
   Action action = {ACT_START_CAN_ENUMERATION, false };
   controller->putAction(action);
 
+  initSetupCommon();
+}
+
+void MinimumNodeService::initSetupCommon()
+{
+  instantMode = MODE_SETUP;
+  controller->indicateMode(MODE_SETUP);
+
   // send RQNN message with current NN, which may be zero if a virgin/Uninitialised node
   controller->sendMessageWithNN(OPC_RQNN);
 
-  // DEBUG_SERIAL << F("> requesting NN with RQNN message for NN = ") << module_config->nodeNum << endl;
+  // DEBUG_SERIAL << F("> requesting NN with RQNN message for NN = ") << controller->getModuleConfig()->nodeNum << endl;
 }
 
 void MinimumNodeService::setNormal(unsigned int nn)
 {
   // DEBUG_SERIAL << F("> set Normal") << endl;
-  requestingNewNN = false;
   instantMode = MODE_NORMAL;
-  module_config->setModuleNormalMode(nn);
+  controller->getModuleConfig()->setModuleNormalMode(nn);
   controller->indicateMode(MODE_NORMAL);
 }
 
@@ -63,49 +59,27 @@ void MinimumNodeService::setNormal(unsigned int nn)
 void MinimumNodeService::setUninitialised()
 {
   // DEBUG_SERIAL << F("> set Uninitialised") << endl;
-  requestingNewNN = false;
+  if (controller->getModuleConfig()->nodeNum != 0  && instantMode == MODE_NORMAL)
+  {
+    controller->sendMessageWithNN(OPC_NNREL);  // release node number first
+  }
   instantMode = MODE_UNINITIALISED;
-  module_config->setModuleUninitializedMode();
-  module_config->setCANID(0);
-
+  controller->getModuleConfig()->setModuleUninitializedMode();
   controller->indicateMode(MODE_UNINITIALISED);
 }
 
 //
-/// revert from Normal to Uninitialised mode
+/// request new node number
 //
 void MinimumNodeService::initSetupFromNormal()
 {
-  // DEBUG_SERIAL << F("> reverting to Uninitialised mode") << endl;
-  requestingNewNN = true;
-  controller->sendMessageWithNN(OPC_NNREL);
-  initSetup();
-}
-
-//
-/// check 30 sec timeout for MODE_CHANGE negotiation with FCU
-//
-void MinimumNodeService::checkModeChangeTimeout()
-{
-  if (instantMode == MODE_SETUP && ((millis() - timeOutTimer) >= 30000)) 
-  {
-    // Revert to previous mode.
-    // DEBUG_SERIAL << F("> timeout expired, currentMode = ") << currentMode << F(", mode change = ") << bModeSetup << endl;
-    instantMode = module_config->currentMode;
-    controller->indicateMode(instantMode);
-
-    if (requestingNewNN)
-    {
-      // Renegotiating timed out.  Revert to previous NN   
-      requestingNewNN = false;
-      controller->sendMessageWithNN(OPC_NNACK);
-    }
-  }
+  // DEBUG_SERIAL << F("> reverting to Setup mode") << endl;
+  initSetupCommon();
 }
 
 void MinimumNodeService::heartbeat()
 {
-  if ((module_config->currentMode == MODE_NORMAL) && !noHeartbeat && instantMode != MODE_SETUP)
+  if ((controller->getModuleConfig()->currentMode == MODE_NORMAL) && !noHeartbeat && instantMode != MODE_SETUP)
   {
     if ((millis() - lastHeartbeat) > heartRate)
     {
@@ -128,10 +102,39 @@ void MinimumNodeService::process(const Action *action)
     switch (action->actionType)
     {
       case ACT_CHANGE_MODE:
-        switch (module_config->currentMode)
+        switch (instantMode)
         {
         case MODE_UNINITIALISED:
-          initSetup();
+          initSetupFromUninitialised();
+          break;
+           
+        case MODE_NORMAL:
+        case MODE_SETUP:
+          setUninitialised();
+          break;
+           
+        default:
+          break;
+        }
+        break;
+      
+      case ACT_RENEGOTIATE:
+        switch (instantMode)
+        {
+        case MODE_UNINITIALISED:
+          break;
+          
+        case MODE_SETUP:
+          // Cancel setup and revert to previous mode.
+          instantMode = controller->getModuleConfig()->currentMode;
+          controller->indicateMode(instantMode);
+
+          if (controller->getModuleConfig()->nodeNum != 0)
+          {
+            // Revert to previous NN   
+            controller->sendMessageWithNN(OPC_NNACK);
+          }
+            
           break;
            
         case MODE_NORMAL:
@@ -152,7 +155,6 @@ void MinimumNodeService::process(const Action *action)
     }
   }
 
-  checkModeChangeTimeout();
   heartbeat();
 }
 
@@ -164,6 +166,7 @@ void MinimumNodeService::handleMessage(const VlcbMessage *msg)
 {
   unsigned int opc = msg->data[0];
   unsigned int nn = Configuration::getTwoBytes(&msg->data[1]);
+  Configuration *module_config = controller->getModuleConfig();
 
   switch (opc)
   {
@@ -187,23 +190,25 @@ void MinimumNodeService::handleMessage(const VlcbMessage *msg)
 
     case OPC_RQNN:
       // 50 - Another module has entered setup.
-      // If we are in setup, abort (MNS Spec 3.2.1)
+      // If we are in setup, abort (MNS Spec 3.1.1)
 
       if (instantMode == MODE_SETUP)
       {
         instantMode = module_config->currentMode;
         controller->indicateMode(module_config->currentMode);
+        controller->messageActedOn();
       }
       break;
 
     case OPC_QNN:
       // 0D - this is probably a config recreate -- respond with PNN if we have a node number
-      // DEBUG_SERIAL << F("> QNN received, my node number = ") << module_config->nodeNum << endl;
+      // DEBUG_SERIAL << F("> QNN received, my node number = ") << controller->getModuleConfig()->nodeNum << endl;
 
       if (module_config->nodeNum > 0)
       {
         // DEBUG_SERIAL << ("> responding with PNN message") << endl;
         controller->sendMessageWithNN(OPC_PNN, controller->getParam(PAR_MANU), controller->getParam(PAR_MTYP), controller->getParam(PAR_FLAGS));
+        controller->messageActedOn();
       }
       break;
 
@@ -222,17 +227,13 @@ void MinimumNodeService::handleMessage(const VlcbMessage *msg)
         response.data[0] = OPC_NAME;
         memcpy(response.data + 1, controller->getModuleName(), 7);
         controller->sendMessage(&response);
+        controller->messageActedOn();
       }
       break;
 
     case OPC_RQSD:
       // 78 - Request Service Definitions.
       handleRequestServiceDefinitions(msg, nn);
-      break;
-
-    case OPC_RDGN:
-      // 87 - Request Diagnostic Data
-      handleRequestDiagnostics(msg, nn);
       break;
 
     case OPC_MODE:
@@ -242,18 +243,20 @@ void MinimumNodeService::handleMessage(const VlcbMessage *msg)
 
     case OPC_NNRSM:
       //4F - reset to manufacturer's defaults 
-      if (nn == module_config->nodeNum)
+      if (isThisNodeNumber(nn))
       {        
         controller->sendMessageWithNN(OPC_NNREL);  // release node number first
-        module_config->resetModule();        
+        module_config->resetModule();
+        controller->messageActedOn();
       }
       break;
       
     case OPC_NNRST:
       //5E - software reset
-      if (nn == module_config->nodeNum)
+      if (isThisNodeNumber(nn))
       {
         module_config->reboot();
+        controller->messageActedOn();
       }
       break;
   }
@@ -264,83 +267,93 @@ void MinimumNodeService::handleRequestNodeParameters()
   // DEBUG_SERIAL << F("> RQNP -- request for node params during Normal transition for NN = ") << nn << endl;
 
   // only respond if we are in transition to Normal mode
-  if (instantMode == MODE_SETUP)
+  if (instantMode != MODE_SETUP)
   {
-    // DEBUG_SERIAL << F("> responding to RQNP with PARAMS") << endl;
-
-    // respond with PARAMS message
-    VlcbMessage response;
-    response.len = 8;
-    response.data[0] = OPC_PARAMS;    // opcode
-    response.data[1] = controller->getParam(PAR_MANU);     // manf code -- MERG
-    response.data[2] = controller->getParam(PAR_MINVER);     // minor code ver
-    response.data[3] = controller->getParam(PAR_MTYP);     // module ident
-    response.data[4] = controller->getParam(PAR_EVTNUM);     // number of events
-    response.data[5] = controller->getParam(PAR_EVNUM);     // events vars per event
-    response.data[6] = controller->getParam(PAR_NVNUM);     // number of NVs
-    response.data[7] = controller->getParam(PAR_MAJVER);     // major code ver
-
-    controller->sendMessage(&response);
+    return;
   }
+
+  // DEBUG_SERIAL << F("> responding to RQNP with PARAMS") << endl;
+
+  // respond with PARAMS message
+  VlcbMessage response;
+  response.len = 8;
+  response.data[0] = OPC_PARAMS;    // opcode
+  response.data[1] = controller->getParam(PAR_MANU);     // manf code -- MERG
+  response.data[2] = controller->getParam(PAR_MINVER);     // minor code ver
+  response.data[3] = controller->getParam(PAR_MTYP);     // module ident
+  response.data[4] = controller->getParam(PAR_EVTNUM);     // number of events
+  response.data[5] = controller->getParam(PAR_EVNUM);     // events vars per event
+  response.data[6] = controller->getParam(PAR_NVNUM);     // number of NVs
+  response.data[7] = controller->getParam(PAR_MAJVER);     // major code ver
+
+  controller->sendMessage(&response);
+  controller->messageActedOn();
 }
 
 void MinimumNodeService::handleRequestNodeParameter(const VlcbMessage *msg, unsigned int nn)
 {
-  if (nn == module_config->nodeNum)
+  if (!isThisNodeNumber(nn))
   {
-    if (msg->len < 4)
+    return;
+  }
+
+  if (msg->len < 4)
+  {
+    controller->sendGRSP(OPC_RQNPN, getServiceID(), CMDERR_INV_CMD);
+  }
+  else
+  {
+    byte paran = msg->data[3];
+
+    //DEBUG_SERIAL << F("> RQNPN request for parameter # ") << paran << F(", from nn = ") << nn << endl;
+
+    if (paran == 0)
     {
-      controller->sendGRSP(OPC_RQNPN, getServiceID(), CMDERR_INV_CMD);
+      for (byte i = 0; i <= controller->getParam(PAR_NUM); i++)
+      {
+        controller->sendMessageWithNN(OPC_PARAN, i, controller->getParam(i));
+      }
+    }
+    else if (paran <= controller->getParam(PAR_NUM))
+    {
+      controller->sendMessageWithNN(OPC_PARAN, paran, controller->getParam(paran));
     }
     else
     {
-      byte paran = msg->data[3];
-
-      //DEBUG_SERIAL << F("> RQNPN request for parameter # ") << paran << F(", from nn = ") << nn << endl;
-
-      if (paran == 0)
-      {
-        for (byte i = 0; i <= controller->getParam(PAR_NUM); i++)
-        {
-          controller->sendMessageWithNN(OPC_PARAN, i, controller->getParam(i));
-        }
-      }
-      else if (paran <= controller->getParam(PAR_NUM))
-      {
-        controller->sendMessageWithNN(OPC_PARAN, paran, controller->getParam(paran));
-      }
-      else
-      {
-        // DEBUG_SERIAL << F("> RQNPN - param #") << paran << F(" is out of range !") << endl;
-        controller->sendCMDERR(CMDERR_INV_PARAM_IDX);
-        controller->sendGRSP(OPC_RQNPN, getServiceID(), CMDERR_INV_PARAM_IDX);
-      }
+      // DEBUG_SERIAL << F("> RQNPN - param #") << paran << F(" is out of range !") << endl;
+      controller->sendCMDERR(CMDERR_INV_PARAM_IDX);
+      controller->sendGRSP(OPC_RQNPN, getServiceID(), CMDERR_INV_PARAM_IDX);
     }
   }
+  controller->messageActedOn();
 }
 
 void MinimumNodeService::handleSetNodeNumber(const VlcbMessage *msg, unsigned int nn)
 {      // DEBUG_SERIAL << F("> received SNN with NN = ") << nn << endl;
 
-  if (instantMode == MODE_SETUP)
+  if (instantMode != MODE_SETUP)
   {
-    if (msg->len < 3)
-    {
-      controller->sendGRSP(OPC_SNN, getServiceID(), CMDERR_INV_CMD);
-    }
-    else
-    {
-      // DEBUG_SERIAL << F("> buf[1] = ") << msg->data[1] << ", buf[2] = " << msg->data[2] << endl;
-
-      // we are now in Normal mode - update the configuration
-      setNormal(nn);
-      // DEBUG_SERIAL << F("> current mode = ") << module_config->currentMode << F(", node number = ") << module_config->nodeNum << F(", CANID = ") << module_config->CANID << endl;
-
-      // respond with NNACK
-      controller->sendMessageWithNN(OPC_NNACK);
-      // DEBUG_SERIAL << F("> sent NNACK for NN = ") << module_config->nodeNum << endl;
-    }
+    return;
   }
+
+  if (msg->len < 3)
+  {
+    controller->sendGRSP(OPC_SNN, getServiceID(), CMDERR_INV_CMD);
+    return;
+  }
+
+  // DEBUG_SERIAL << F("> buf[1] = ") << msg->data[1] << ", buf[2] = " << msg->data[2] << endl;
+
+  // we are now in Normal mode - update the configuration
+  setNormal(nn);
+  // DEBUG_SERIAL << F("> current mode = ") << controller->getModuleConfig()->currentMode << F(", node number = ") << controller->getModuleConfig()->nodeNum << F(", CANID = ") << controller->getModuleConfig()->CANID << endl;
+
+  // respond with NNACK
+  controller->sendMessageWithNN(OPC_NNACK);
+  // DEBUG_SERIAL << F("> sent NNACK for NN = ") << controller->getModuleConfig()->nodeNum << endl;
+  
+  diagNodeNumberChanged();
+  controller->messageActedOn();
 }
 
 static int countServices(const VLCB::ArrayHolder<Service *> &services)
@@ -358,82 +371,62 @@ static int countServices(const VLCB::ArrayHolder<Service *> &services)
 
 void MinimumNodeService::handleRequestServiceDefinitions(const VlcbMessage *msg, unsigned int nn)
 {
-  if (nn == module_config->nodeNum)
+  if (!isThisNodeNumber(nn))
   {
-    if (msg->len < 4)
-    {
-      controller->sendGRSP(OPC_RQSD, getServiceID(), CMDERR_INV_CMD);
-      return;
-    }
+    return;
+  }
 
-    byte serviceIndex = msg->data[3];
-    if (serviceIndex == 0)
-    {
-      // Request for summary of services. First a service count
-      int serviceCount = countServices(controller->getServices());
-      controller->sendMessageWithNN(OPC_SD, 0, 0, serviceCount);
+  if (msg->len < 4)
+  {
+    controller->sendGRSP(OPC_RQSD, getServiceID(), CMDERR_INV_CMD);
+    return;
+  }
 
-      // and then details of each service.
-      byte svcIndex = 0;
-      for (auto svc: controller->getServices())
+  byte serviceIndex = msg->data[3];
+  if (serviceIndex == 0)
+  {
+    // Request for summary of services. First a service count
+    int serviceCount = countServices(controller->getServices());
+    controller->sendMessageWithNN(OPC_SD, 0, 0, serviceCount);
+
+    // and then details of each service.
+    byte svcIndex = 0;
+    for (auto svc: controller->getServices())
+    {
+      ++svcIndex;
+      if (svc->getServiceID() > 0)
       {
-        ++svcIndex;
-        if (svc->getServiceID() > 0)
-        {
-          // TODO: Need to space out these messages, put in a queue or use a TimedResponse structure.
-          controller->sendMessageWithNN(OPC_SD, svcIndex, svc->getServiceID(), svc->getServiceVersionID());
-        }
+        // TODO: Need to space out these messages, put in a queue or use a TimedResponse structure.
+        controller->sendMessageWithNN(OPC_SD, svcIndex, svc->getServiceID(), svc->getServiceVersionID());
       }
     }
-    else if (serviceIndex <= controller->getServices().size())
+  }
+  else if (serviceIndex <= controller->getServices().size())
+  {
+    // Request for details of a single service.
+    Service *theService = controller->getServices()[serviceIndex - 1];
+    if (theService->getServiceID() == 0)
     {
-      // Request for details of a single service.
-      Service *theService = controller->getServices()[serviceIndex - 1];
-      if (theService->getServiceID() == 0)
-      {
-        controller->sendGRSP(OPC_RQSD, getServiceID(), GRSP_INVALID_SERVICE);
-      }
-      else
-      {
-        controller->sendMessageWithNN(OPC_ESD, serviceIndex, theService->getServiceID(), 0, 0, 0);
-      }
-    }
-    else
-    {
-      Serial << "RQSD wrong svcIx=" << serviceIndex << endl;
-      // Couldn't find the service.
       controller->sendGRSP(OPC_RQSD, getServiceID(), GRSP_INVALID_SERVICE);
     }
-  }
-}
-
-void MinimumNodeService::handleRequestDiagnostics(const VlcbMessage *msg, unsigned int nn)
-{
-  if (nn == module_config->nodeNum)
-  {
-    if (msg->len < 5)
-    {
-      controller->sendGRSP(OPC_RDGN, getServiceID(), CMDERR_INV_CMD);
-      return;
-    }
-    byte serviceIndex = msg->data[3];
-    if (serviceIndex <= controller->getServices().size())
-    {
-      Service *theService = controller->getServices()[serviceIndex - 1];
-      byte diagnosticCode = msg->data[4];
-      // TODO: more stuff to go in here    
-    }
     else
     {
-      controller->sendGRSP(OPC_RDGN, serviceIndex, GRSP_INVALID_SERVICE);
+      controller->sendMessageWithNN(OPC_ESD, serviceIndex, theService->getServiceID(), 0, 0, 0);
     }
   }
+  else
+  {
+    Serial << "RQSD wrong svcIx=" << serviceIndex << endl;
+    // Couldn't find the service.
+    controller->sendGRSP(OPC_RQSD, getServiceID(), GRSP_INVALID_SERVICE);
+  }
+  controller->messageActedOn();
 }
 
 void MinimumNodeService::handleModeMessage(const VlcbMessage *msg, unsigned int nn)
 {
   //DEBUG_SERIAL << F("> MODE -- request op-code received for NN = ") << nn << endl;
-  if (nn != module_config->nodeNum)
+  if (!isThisNodeNumber(nn))
   {
     // Not for this module.
     return;
@@ -453,14 +446,16 @@ void MinimumNodeService::handleModeMessage(const VlcbMessage *msg, unsigned int 
   {
     case MODE_UNINITIALISED:
       // Request factory reset mode
-      if (instantMode == MODE_SETUP)
+      switch (instantMode)
       {
-        controller->sendGRSP(OPC_MODE, getServiceID(), GRSP_OK);
-        setUninitialised();
-      }
-      else
-      {
-        controller->sendGRSP(OPC_MODE, getServiceID(), CMDERR_INV_CMD);
+        case MODE_SETUP:
+        case MODE_NORMAL:
+          controller->sendGRSP(OPC_MODE, getServiceID(), GRSP_OK);
+          setUninitialised();
+          break;
+      
+        default:
+          break;
       }
       break;
 
@@ -472,40 +467,37 @@ void MinimumNodeService::handleModeMessage(const VlcbMessage *msg, unsigned int 
           controller->sendGRSP(OPC_MODE, getServiceID(), GRSP_OK);
           initSetupFromNormal();
           break;
-      
-        case MODE_UNINITIALISED:
-          controller->sendGRSP(OPC_MODE, getServiceID(), GRSP_OK);
-          initSetup();
+
+        case MODE_SETUP:
+          controller->sendGRSP(OPC_MODE, getServiceID(), GRSP_INVALID_MODE);
           break;
 
         default:
-          controller->sendGRSP(OPC_MODE, getServiceID(), GRSP_INVALID_MODE);
           break;
       }
       break;
       
     case MODE_NORMAL:
       // Request Normal. Only OK if we are already in Normal mode.
-      if (instantMode == MODE_NORMAL)
+      switch (instantMode)
       {
-        controller->sendGRSP(OPC_MODE, getServiceID(), GRSP_OK);
-      }
-      else
-      {
-        controller->sendGRSP(OPC_MODE, getServiceID(), GRSP_INVALID_MODE);
+        case MODE_NORMAL:
+          controller->sendGRSP(OPC_MODE, getServiceID(), GRSP_OK);
+          break;
+
+        case MODE_SETUP:
+          controller->sendGRSP(OPC_MODE, getServiceID(), GRSP_INVALID_MODE);
+          break;
+
+        default:
+          break;
       }
       break;
 
     case MODE_HEARTBEAT_ON:
-      // Turn on Heartbeat
-      noHeartbeat = false;
-      module_config->setHeartbeat(!noHeartbeat);
-      break;
-
     case MODE_HEARTBEAT_OFF:
-      // Turn off Heartbeat
-      noHeartbeat = true;
-      module_config->setHeartbeat(!noHeartbeat);
+      noHeartbeat = (requestedMode == MODE_HEARTBEAT_OFF);
+      controller->getModuleConfig()->setHeartbeat(!noHeartbeat);
       break;
       
     default:
@@ -513,14 +505,14 @@ void MinimumNodeService::handleModeMessage(const VlcbMessage *msg, unsigned int 
       { 
         controller->sendGRSP(OPC_MODE, getServiceID(), CMDERR_INV_CMD);
       }
-      break;
+      return;
   }
+  controller->messageActedOn();
 }
 
 void MinimumNodeService::setSetupMode()
 {
   instantMode = MODE_SETUP;
-  timeOutTimer = 0;
 }
 
 }

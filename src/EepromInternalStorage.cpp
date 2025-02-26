@@ -17,7 +17,7 @@ void EepromInternalStorage::begin()
   // these devices require an explicit begin with the desired emulated size
 
 #if defined ESP32 || defined ESP8266
-  EEPROM.begin(EE_EVENTS_START + (EE_MAX_EVENTS * EE_BYTES_PER_EVENT));
+  EEPROM.begin(EE_EVENTS_START + (EE_MAX_EVENTS * EE_BYTES_PER_EVENT) + EE_USER_BYTES);
 #endif
 
 #ifdef ARDUINO_ARCH_RP2040
@@ -87,15 +87,17 @@ void EepromInternalStorage::writeBytes(unsigned int eeaddress, const byte src[],
 //
 void EepromInternalStorage::setChipEEPROMVal(unsigned int eeaddress, byte val)
 {
-#ifndef __SAM3X8E__
+  #ifndef __SAM3X8E__
   EEPROM.write(eeaddress, val);
-#endif
-
-#if defined ESP32 || defined ESP8266 || defined ARDUINO_ARCH_RP2040
-  EEPROM.commit();
-#endif
+  #endif  
 }
 
+void EepromInternalStorage::commitWriteEEPROM()
+{
+  #if defined ESP32 || defined ESP8266 || defined ARDUINO_ARCH_RP2040
+  EEPROM.commit();
+  #endif
+}
 //
 /// clear all event data in external EEPROM chip
 //

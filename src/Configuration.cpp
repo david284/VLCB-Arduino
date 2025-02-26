@@ -49,6 +49,12 @@ Configuration::Configuration(Storage * theStorage)
 void Configuration::begin()
 {
   EE_BYTES_PER_EVENT = EE_HASH_BYTES + EE_NUM_EVS;
+  if (EE_EVENTS_START == 0)
+  {
+    EE_EVENTS_START = EE_NVS_START + EE_NUM_NVS;
+    // Note: The formula above does not allow for upgrades to user app where NVs are added 
+    // as this would move the location for stored events. 
+  }
 
   storage->begin();
   loadNVs();
@@ -62,16 +68,32 @@ void Configuration::begin()
   }
 
   makeEvHashTable();
+  
+  EE_FREE_BASE = EE_EVENTS_START + (EE_BYTES_PER_EVENT * EE_MAX_EVENTS);
 }
 
 void Configuration::setModuleUninitializedMode()
 {
   setModuleMode(MODE_UNINITIALISED);
   setNodeNum(0);
+  setCANID(0);
 }
 
 void Configuration::setModuleNormalMode(unsigned int nodeNumber)
 {
+  currentMode = (VlcbModeParams) (storage->read(LOCATION_MODE)); 
+  if (currentMode == VlcbModeParams::MODE_UNINITIALISED)  // Ensure that NVs and EVs are cleared
+  {
+    for (byte i = 1; i <= EE_NUM_NVS; i++)
+    {
+      writeNV(i, 0xff);
+    }
+    for (byte j = 0; j < EE_MAX_EVENTS; j++)
+    {
+      cleareventEEPROM(j);
+    }
+  }
+  
   setModuleMode(MODE_NORMAL);
   setNodeNum(nodeNumber);
 }
@@ -94,7 +116,7 @@ void Configuration::setEventAck(bool ea)
 {
   eventAck = ea;
   byte servicePersist = storage->read(LOCATION_FLAGS);
-  bitWrite(servicePersist, HEARTBEAT_BIT, ea);
+  bitWrite(servicePersist, EVENT_ACK_BIT, ea);
   storage->write(LOCATION_FLAGS, servicePersist);
 }
 
@@ -120,7 +142,7 @@ void Configuration::setNodeNum(unsigned int nn)
 //
 /// lookup an event by node number and event number, using the hash table
 //
-byte Configuration::findExistingEvent(unsigned int nn, unsigned int en)
+byte Configuration::findExistingEvent(unsigned int nn, unsigned int en) const
 {
   byte tarray[EE_HASH_BYTES];
 
@@ -154,7 +176,7 @@ byte Configuration::findExistingEvent(unsigned int nn, unsigned int en)
 /// find the first empty EEPROM event slot - the hash table entry == 0
 //
 
-byte Configuration::findEventSpace()
+byte Configuration::findEventSpace() const
 {
   byte evidx;
 
@@ -170,7 +192,7 @@ byte Configuration::findEventSpace()
   return evidx;
 }
 
-byte Configuration::findExistingEventByEv(byte evnum, byte evval)
+byte Configuration::findExistingEventByEv(byte evnum, byte evval) const
 {
   byte i;
   for (i = 0; i < EE_MAX_EVENTS; i++)
@@ -186,7 +208,7 @@ byte Configuration::findExistingEventByEv(byte evnum, byte evval)
 //
 /// create a hash from a 4-byte event entry array -- NN + EN
 //
-byte Configuration::makeHash(byte tarr[EE_HASH_BYTES])
+byte Configuration::makeHash(byte tarr[EE_HASH_BYTES]) const
 {
   // make a hash from a 4-byte NN + EN event
   unsigned int nn = getTwoBytes(&tarr[0]);
@@ -208,7 +230,7 @@ byte Configuration::makeHash(byte tarr[EE_HASH_BYTES])
 /// return an existing EEPROM event as a 4-byte array -- NN + EN
 //
 
-void Configuration::readEvent(byte idx, byte tarr[EE_HASH_BYTES])
+void Configuration::readEvent(byte idx, byte tarr[EE_HASH_BYTES]) const
 {
   // populate the array with the first 4 bytes (NN + EN) of the event entry from the EEPROM
   for (byte i = 0; i < EE_HASH_BYTES; i++)
@@ -221,7 +243,7 @@ void Configuration::readEvent(byte idx, byte tarr[EE_HASH_BYTES])
 
 // return the address an event variable is stored in the eeprom.
 // Note that the evnum is 1 based and needs to be converted to 0 based.
-unsigned int Configuration::getEVAddress(byte idx, byte evnum)
+unsigned int Configuration::getEVAddress(byte idx, byte evnum) const
 {
   return EE_EVENTS_START + (idx * EE_BYTES_PER_EVENT) + EE_HASH_BYTES + evnum - 1;
 }
@@ -229,7 +251,7 @@ unsigned int Configuration::getEVAddress(byte idx, byte evnum)
 //
 /// return an event variable (EV) value given the event table index and EV number
 //
-byte Configuration::getEventEVval(byte idx, byte evnum)
+byte Configuration::getEventEVval(byte idx, byte evnum) const
 {
   return storage->read(getEVAddress(idx, evnum));
 }
@@ -247,10 +269,9 @@ void Configuration::writeEventEV(byte idx, byte evnum, byte evval)
 //
 void Configuration::makeEvHashTable()
 {
-  byte evarray[EE_HASH_BYTES];
-
   // DEBUG_SERIAL << F("> creating event hash table") << endl;
 
+  // TODO: Check for null return. Don't call updateEvHashEntry in that case.
   evhashtbl = (byte *)malloc(EE_MAX_EVENTS * sizeof(byte));
 
   for (byte idx = 0; idx < EE_MAX_EVENTS; idx++)
@@ -280,6 +301,18 @@ void Configuration::updateEvHashEntry(byte idx)
   }
 
   // DEBUG_SERIAL << F("> updateEvHashEntry for idx = ") << idx << F(", hash = ") << hash << endl;
+}
+
+// Return a readable string for a mode value
+const char * Configuration::modeString(VlcbModeParams mode)
+{
+  switch (mode & 0x07)
+  {
+    case MODE_NORMAL: return "Normal";
+    case MODE_UNINITIALISED: return "Uninitialised";
+    case MODE_SETUP: return "Setup";
+    default: return "Unknown"; 
+  }
 }
 
 //
@@ -326,7 +359,7 @@ void Configuration::printEvHashTable(bool raw)
 //
 /// return the number of stored events
 //
-byte Configuration::numEvents()
+byte Configuration::numEvents() const
 {
   byte numevents = 0;
 
@@ -344,7 +377,7 @@ byte Configuration::numEvents()
 //
 /// return a single hash table entry by index
 //
-byte Configuration::getEvTableEntry(byte tindex)
+byte Configuration::getEvTableEntry(byte tindex) const
 {
   if (tindex < EE_MAX_EVENTS)
   {
@@ -360,7 +393,7 @@ byte Configuration::getEvTableEntry(byte tindex)
 /// read an NV value from EEPROM
 /// note that NVs number from 1, not 0
 //
-byte Configuration::readNV(byte idx)
+byte Configuration::readNV(byte idx) const
 {
   return (storage->read(EE_NVS_START + (idx - 1)));
 }
@@ -397,6 +430,15 @@ void Configuration::cleareventEEPROM(byte index)
 {
   // DEBUG_SERIAL << F("> clearing event at index = ") << index << endl;
   writeEvent(index, unused_entry);
+  for (byte ev = 1; ev <= EE_NUM_EVS; ev++)
+  {
+    writeEventEV(index, ev, 0xff);
+  }
+}
+
+void Configuration::commitToEEPROM()
+{
+  storage->commitWriteEEPROM();
 }
 
 //
@@ -539,6 +581,12 @@ void Configuration::resetModule()
 void Configuration::loadNVs()
 {
   currentMode = (VlcbModeParams) (storage->read(LOCATION_MODE) ); // Bit 0 persists Uninitialised / Normal mode
+  if (currentMode == VlcbModeParams::MODE_SETUP)
+  {
+    // currentMode should never be setup but may happen on re-initialized boards.
+    currentMode = VlcbModeParams::MODE_UNINITIALISED;
+    storage->write(LOCATION_MODE, currentMode);
+  }
   CANID = storage->read(LOCATION_CANID);
   nodeNum = (storage->read(LOCATION_NODE_NUMBER_HIGH) << 8) + storage->read(LOCATION_NODE_NUMBER_LOW);
   byte flags = storage->read(LOCATION_FLAGS);

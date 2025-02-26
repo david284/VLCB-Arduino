@@ -1,25 +1,17 @@
 // VLCB_4in4out
 
-
 /*
   Copyright (C) 2023 Martin Da Costa
-  //  This file is part of VLCB-Arduino project on https://github.com/SvenRosvall/VLCB-Arduino
-//  Licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License.
-//  The full licence can be found at: http://creativecommons.org/licenses/by-nc-sa/4.0
+  This file is part of VLCB-Arduino project on https://github.com/SvenRosvall/VLCB-Arduino
+  Licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License.
+  The full licence can be found at: http://creativecommons.org/licenses/by-nc-sa/4.0
 
-/*
-      3rd party libraries needed for compilation: (not for binary-only distributions)
+  3rd party libraries needed for compilation: (not for binary-only distributions)
 
-      Streaming   -- C++ stream style output, v5, (http://arduiniana.org/libraries/streaming/)
-      ACAN2515    -- library to support the MCP2515/25625 CAN controller IC
+  Streaming   -- C++ stream style output, v5, (http://arduiniana.org/libraries/streaming/)
+  ACAN2515    -- library to support the MCP2515/25625 CAN controller IC
 */
 
-/*
-      3rd party libraries needed for compilation:
-
-      Streaming   -- C++ stream style output, v5, (http://arduiniana.org/libraries/streaming/)
-      ACAN2515    -- library to support the MCP2515/25625 CAN controller IC
-*/
 ///////////////////////////////////////////////////////////////////////////////////
 // Pin Use map UNO:
 // Digital pin 2          Interupt CAN
@@ -112,7 +104,7 @@ const byte NUM_SWITCHES = sizeof(SWITCH) / sizeof(SWITCH[0]);
 // module objects
 Bounce moduleSwitch[NUM_SWITCHES];  //  switch as input
 LEDControl moduleLED[NUM_LEDS];     //  LED as output
-byte switchState[NUM_SWITCHES];
+bool state[NUM_SWITCHES];
 
 // forward function declarations
 void eventhandler(byte, const VLCB::VlcbMessage *);
@@ -125,21 +117,11 @@ void processSwitches();
 void setupVLCB()
 {
   // set config layout parameters
-  modconfig.EE_NVS_START = 10;
   modconfig.EE_NUM_NVS = NUM_SWITCHES;
   modconfig.EE_EVENTS_START = 50;
   modconfig.EE_MAX_EVENTS = 64;
   modconfig.EE_PRODUCED_EVENTS = NUM_SWITCHES;
   modconfig.EE_NUM_EVS = 1 + NUM_LEDS;
-
-  // initialise and load configuration
-  controller.begin();
-
-  Serial << F("> mode = ") << ((modconfig.currentMode) ? "Normal" : "Uninitialised") << F(", CANID = ") << modconfig.CANID;
-  Serial << F(", NN = ") << modconfig.nodeNum << endl;
-
-  // show code version and copyright notice
-  printConfig();
 
   // set module parameters
   VLCB::Parameters params(modconfig);
@@ -160,6 +142,8 @@ void setupVLCB()
   
   // register our VLCB event handler, to receive event messages of learned events
   ecService.setEventHandler(eventhandler);
+  // register the VLCB request event handler to receive event status requests.
+  epService.setRequestEventHandler(eventhandler);
 
   // set Controller LEDs to indicate the current mode
   controller.indicateMode(modconfig.currentMode);
@@ -172,17 +156,25 @@ void setupVLCB()
   {
     Serial << F("> error starting VLCB") << endl;
   }
+
+  // initialise and load configuration
+  controller.begin();
+
+  Serial << F("> mode = ") << VLCB::Configuration::modeString(modconfig.currentMode) << F(", CANID = ") << modconfig.CANID;
+  Serial << F(", NN = ") << modconfig.nodeNum << endl;
+
+  // show code version and copyright notice
+  printConfig();
 }
 
 void setupModule()
 {
-  unsigned int nodeNum = modconfig.nodeNum;
   // configure the module switches, active low
   for (byte i = 0; i < NUM_SWITCHES; i++)
   {
     moduleSwitch[i].attach(SWITCH[i], INPUT_PULLUP);
     moduleSwitch[i].interval(5);
-    switchState[i] = false;
+    state[i] = false;
   }
 
   // configure the module LEDs
@@ -240,7 +232,6 @@ void processSwitches(void)
     {
       byte nv = i + 1;
       byte nvval = modconfig.readNV(nv);
-      bool state;
       byte swNum = i + 1;
 
       // DEBUG_PRINT(F("sk> Button ") << i << F(" state change detected. NV Value = ") << nvval);
@@ -249,18 +240,18 @@ void processSwitches(void)
       {
         case 1:
           // ON and OFF
-          state = (moduleSwitch[i].fell());
-          //DEBUG_PRINT(F("sk> Button ") << i << (moduleSwitch[i].fell() ? F(" pressed, send state: ") : F(" released, send state: ")) << state);
-          epService.sendEvent(state, swNum);
+          state[i] = (moduleSwitch[i].fell());
+          //DEBUG_PRINT(F("sk> Button ") << i << (state[i] ? F(" pressed, send state: ") : F(" released, send state: ")) << state[i]);
+          epService.sendEvent(state[i], swNum);
           break;
 
         case 2:
           // Only ON
           if (moduleSwitch[i].fell()) 
           {
-            state = true;
-            //DEBUG_PRINT(F("sk> Button ") << i << F(" pressed, send state: ") << state);
-            epService.sendEvent(state, swNum);
+            state[i] = true;
+            //DEBUG_PRINT(F("sk> Button ") << i << F(" pressed, send state: ") << state[i]);
+            epService.sendEvent(state[i], swNum);
           }
           break;
 
@@ -268,9 +259,9 @@ void processSwitches(void)
           // Only OFF
           if (moduleSwitch[i].fell())
           {
-            state = false;
-            //DEBUG_PRINT(F("sk> Button ") << i << F(" pressed, send state: ") << state);
-            epService.sendEvent(state, swNum);
+            state[i] = false;
+            //DEBUG_PRINT(F("sk> Button ") << i << F(" pressed, send state: ") << state[i]);
+            epService.sendEvent(state[i], swNum);
           }
           break;
 
@@ -278,10 +269,9 @@ void processSwitches(void)
           // Toggle button
           if (moduleSwitch[i].fell())
           {
-            switchState[i] = !switchState[i];
-            state = (switchState[i]);
-            //DEBUG_PRINT(F("sk> Button ") << i << (moduleSwitch[i].fell() ? F(" pressed, send state: ") : F(" released, send state: ")) << state);
-            epService.sendEvent(state, swNum);
+            state[i] = !state[i];
+            //DEBUG_PRINT(F("sk> Button ") << i << (state[i] ? F(" pressed, send state: ") : F(" released, send state: ")) << state[i]);
+            epService.sendEvent(state[i], swNum);
           }
           break;
 
@@ -352,6 +342,12 @@ void eventhandler(byte index, const VLCB::VlcbMessage *msg)
         }
       }
       break;
+      
+    case OPC_AREQ:
+    case OPC_ASRQ:
+      byte evval = modconfig.getEventEVval(index, 1) - 1;
+      DEBUG_PRINT(F("> Handling request op =  ") << _HEX(opc) << F(", request input = ") << evval << F(", state = ") << state[evval]);
+      epService.sendEventResponse(state[evval], index);
   }
 }
 

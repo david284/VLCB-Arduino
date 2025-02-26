@@ -11,12 +11,6 @@
 
 namespace VLCB {
 
-void EventConsumerService::setController(Controller *cntrl) 
-{
-  this->controller = cntrl;
-  this->module_config = cntrl->getModuleConfig();
-}
-
 //
 /// register the user handler for learned events
 //
@@ -31,15 +25,22 @@ void EventConsumerService::setEventHandler(void (*fptr)(byte index, const VlcbMe
 void EventConsumerService::processAccessoryEvent(const VlcbMessage *msg, unsigned int nn, unsigned int en) 
 {
   // try to find a matching stored event -- match on nn, en
-  byte index = module_config->findExistingEvent(nn, en);
+  byte index = controller->getModuleConfig()->findExistingEvent(nn, en);
 
   // call any registered event handler
 
-  if (index < module_config->EE_MAX_EVENTS)
+  if (index < controller->getModuleConfig()->EE_MAX_EVENTS)
   {
     if (eventhandler != nullptr)
     {
+      ++diagEventsConsumed;
+      controller->messageActedOn();
       (void)(*eventhandler)(index, msg);
+      if (controller->getModuleConfig()->eventAck)
+      {
+        controller->sendMessageWithNN(OPC_ENACK, msg->data[0], highByte(nn), lowByte(nn), highByte(en), lowByte(en));
+        ++diagEventsAcknowledged;
+      }
     }
   }
 }
@@ -114,6 +115,33 @@ void EventConsumerService::handleConsumedMessage(const VlcbMessage *msg)
       {
         processAccessoryEvent(msg, 0, en);
       }
+      break;
+      
+    case OPC_MODE:
+      // 76 - Set Operating Mode
+      //DEBUG_SERIAL << F("ets> MODE -- request op-code received for NN = ") << nn << endl;
+      if (!isThisNodeNumber(nn))
+        {
+          // Not for this module.
+          return;
+        }      
+
+      switch (msg->data[3])
+      {
+        case MODE_EVENT_ACK_ON:
+          // Turn on Event Acknowledge Mode
+          controller->getModuleConfig()->setEventAck(true);
+          break;
+
+        case MODE_EVENT_ACK_OFF:
+          // Turn off Event Acknowledge Mode
+          controller->getModuleConfig()->setEventAck(false);
+          break;
+          
+        default:
+          return;
+      }
+      controller->messageActedOn();
       break;
 
     default:

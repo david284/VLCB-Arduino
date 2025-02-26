@@ -11,15 +11,16 @@
 
 #include <SPI.h>
 
-#include <Configuration.h>
 #include <Transport.h>
-#include "Service.h"
 #include "initializer_list.h"
 #include "ArrayHolder.h"
 #include "CircularBuffer.h"
+#include "Parameters.h"
 
 namespace VLCB
 {
+
+class Configuration;
 
 //
 /// CAN/Controller message type
@@ -54,6 +55,8 @@ struct Action
   };
 };
 
+class Service;
+
 //
 /// Main object in VLCB. Coordinates transport, ui, configuration and services.
 //
@@ -63,39 +66,43 @@ public:
   Controller(std::initializer_list<Service *> services);
   Controller(Configuration *conf, std::initializer_list<Service *> services);
 
-  Configuration * getModuleConfig() { return module_config; }
+  Configuration * getModuleConfig() const { return module_config; }
 
   void setName(const unsigned char *mname);
-  const unsigned char *getModuleName() { return _mname; }
+  const unsigned char *getModuleName() const { return _mname; }
 
   const ArrayHolder<Service *> & getServices() { return services; }
 
+  void setParams(VLCB::Parameters & params) { setParams( params.getParams()); }
   void setParams(unsigned char *mparams);
-  void setParamFlag(unsigned char flag, bool b);
-  unsigned char getParam(unsigned int param) { return _mparams[param]; }
+  void setParamFlag(VlcbParamFlags flag, bool set);
+  unsigned char getParam(unsigned int param) const { return _mparams[param]; }
 
   bool sendMessage(const VlcbMessage *msg);
 
   void begin();
-  inline bool sendMessageWithNN(int opc);
-  inline bool sendMessageWithNN(int opc, byte b1);
-  inline bool sendMessageWithNN(int opc, byte b1, byte b2);
-  inline bool sendMessageWithNN(int opc, byte b1, byte b2, byte b3);
-  inline bool sendMessageWithNN(int opc, byte b1, byte b2, byte b3, byte b4);
-  inline bool sendMessageWithNN(int opc, byte b1, byte b2, byte b3, byte b4, byte b5);
+  inline bool sendMessageWithNN(VlcbOpCodes opc);
+  inline bool sendMessageWithNN(VlcbOpCodes opc, byte b1);
+  inline bool sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2);
+  inline bool sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2, byte b3);
+  inline bool sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2, byte b3, byte b4);
+  inline bool sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2, byte b3, byte b4, byte b5);
   bool sendWRACK();
   bool sendCMDERR(byte cerrno);
-  void sendGRSP(byte opCode, byte serviceType, byte errCode);
+  void sendGRSP(VlcbOpCodes opCode, byte serviceType, byte errCode);
+  void sendDGN(byte serviceIndex, byte diagCode, unsigned int counter);
 
-  byte getModuleCANID() { return module_config->CANID; }
+  byte getModuleCANID() const { return module_config->CANID; }
   void process();
   void indicateMode(VlcbModeParams mode);
   void indicateActivity();
-  void setLearnMode(byte reqMode);
   
   void putAction(const Action & action);
   void putAction(ACTION action);
   bool pendingAction();
+
+  void messageActedOn() { ++diagMsgsActed; }
+  unsigned int getMessagesActedOn() { return diagMsgsActed; }
 
 private:
   Configuration *module_config;
@@ -106,36 +113,39 @@ private:
   
   CircularBuffer<Action> actionQueue;
 
-  bool sendMessageWithNNandData(int opc) { return sendMessageWithNNandData(opc, 0, 0); }
-  bool sendMessageWithNNandData(int opc, int len, ...);
+  bool sendMessageWithNNandData(VlcbOpCodes opc) { return sendMessageWithNNandData(opc, 0, 0); }
+  bool sendMessageWithNNandData(VlcbOpCodes opc, int len, ...);
+
+  // Really an MNS diagnostic but placed here as its data is collected across all services.
+  unsigned int diagMsgsActed = 0;
 };
 
-bool Controller::sendMessageWithNN(int opc)
+bool Controller::sendMessageWithNN(VlcbOpCodes opc)
 {
   return sendMessageWithNNandData(opc);
 }
 
-bool Controller::sendMessageWithNN(int opc, byte b1)
+bool Controller::sendMessageWithNN(VlcbOpCodes opc, byte b1)
 {
   return sendMessageWithNNandData(opc, 1, b1);
 }
 
-bool Controller::sendMessageWithNN(int opc, byte b1, byte b2)
+bool Controller::sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2)
 {
   return sendMessageWithNNandData(opc, 2, b1, b2);
 }
 
-bool Controller::sendMessageWithNN(int opc, byte b1, byte b2, byte b3)
+bool Controller::sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2, byte b3)
 {
   return sendMessageWithNNandData(opc, 3, b1, b2, b3);
 }
 
-bool Controller::sendMessageWithNN(int opc, byte b1, byte b2, byte b3, byte b4)
+bool Controller::sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2, byte b3, byte b4)
 {
   return sendMessageWithNNandData(opc, 4, b1, b2, b3, b4);
 }
 
-bool Controller::sendMessageWithNN(int opc, byte b1, byte b2, byte b3, byte b4, byte b5)
+bool Controller::sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2, byte b3, byte b4, byte b5)
 {
   return sendMessageWithNNandData(opc, 5, b1, b2, b3, b4, b5);
 }

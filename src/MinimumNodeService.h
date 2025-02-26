@@ -11,7 +11,6 @@
 namespace VLCB
 {
 
-class Configuration;
 struct VlcbMessage;
 
 class MinimumNodeService : public Service
@@ -19,11 +18,10 @@ class MinimumNodeService : public Service
 
 public:
 
-  virtual void setController(Controller *cntrl) override;
   virtual void process(const Action *action) override; 
 
-  virtual byte getServiceID() override { return SERVICE_ID_MNS; }
-  virtual byte getServiceVersionID() override { return 1; }
+  virtual VlcbServiceTypes getServiceID() const override { return SERVICE_ID_MNS; }
+  virtual byte getServiceVersionID() const override { return 1; }
   
   virtual void begin() override;
   
@@ -35,16 +33,11 @@ public:
 
 private:
 
-  Controller *controller;
-  Configuration * module_config;  // Shortcut to reduce indirection code.
-
-  bool requestingNewNN = false;
-  unsigned long timeOutTimer;
   VlcbModeParams instantMode;
   
-  void checkModeChangeTimeout();
-  void initSetup();
+  void initSetupFromUninitialised();
   void initSetupFromNormal();
+  void initSetupCommon();
 
   void heartbeat();
   
@@ -53,13 +46,16 @@ private:
   bool noHeartbeat = false;
   unsigned int heartRate = 5000;
 
-  void handleMessage(const VlcbMessage *msg);
   void handleRequestNodeParameters();
   void handleRequestNodeParameter(const VlcbMessage *msg, unsigned int nn);
   void handleSetNodeNumber(const VlcbMessage *msg, unsigned int nn);
   void handleRequestServiceDefinitions(const VlcbMessage *msg, unsigned int nn);
-  void handleRequestDiagnostics(const VlcbMessage *msg, unsigned int nn);
   void handleModeMessage(const VlcbMessage *msg, unsigned int nn);
+  
+protected:
+  virtual void handleMessage(const VlcbMessage *msg);
+  
+  virtual void diagNodeNumberChanged() {};
 };
 
 }

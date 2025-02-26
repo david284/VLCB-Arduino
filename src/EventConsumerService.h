@@ -10,32 +10,32 @@
 
 namespace VLCB {
 
-class Configuration;
 struct VlcbMessage;
 
 class EventConsumerService : public Service 
 {
 public:
-  virtual void setController(Controller *cntrl) override;
   void setEventHandler(void (*fptr)(byte index, const VlcbMessage *msg));
   virtual void process(const Action * action) override;
 
-  virtual byte getServiceID() override 
+  virtual VlcbServiceTypes getServiceID() const override 
   {
     return SERVICE_ID_CONSUMER;
   }
-  virtual byte getServiceVersionID() override 
+  virtual byte getServiceVersionID() const override 
   {
     return 1;
   }
 
 private:
-  Controller *controller;
-  Configuration *module_config;  // Shortcut to reduce indirection code.
   void (*eventhandler)(byte index, const VlcbMessage *msg) = nullptr;
-
-  void processAccessoryEvent(const VlcbMessage *msg, unsigned int nn, unsigned int en);
   void handleConsumedMessage(const VlcbMessage *msg);
+  void processAccessoryEvent(const VlcbMessage *msg, unsigned int nn, unsigned int en);  
+  
+protected:
+  unsigned int diagEventsConsumed = 0;
+  unsigned int diagEventsAcknowledged = 0;
+
 };
 
 }  // VLCB

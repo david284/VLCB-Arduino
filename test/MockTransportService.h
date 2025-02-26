@@ -19,10 +19,8 @@ class Controller;
 class MockTransportService : public VLCB::Service
 {
 public:
-  virtual void setController(VLCB::Controller *cntrl) override;
-
-  virtual byte getServiceID() override { return 99; }
-  virtual byte getServiceVersionID() override { return 1; }
+  virtual VlcbServiceTypes getServiceID() const override { return SERVICE_ID_CAN; }
+  virtual byte getServiceVersionID() const override { return 1; }
 
   virtual void process(const VLCB::Action * action) override;
 
@@ -32,7 +30,4 @@ public:
 
   std::deque<VLCB::VlcbMessage> incoming_messages;
   std::vector<VLCB::VlcbMessage> sent_messages;
-
-private:
-  VLCB::Controller * controller;
 };

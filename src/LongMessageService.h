@@ -42,7 +42,6 @@ class LongMessageService : public Service
 
 public:
 
-  virtual void setController(Controller *cntrl) override { this->controller = cntrl; }
   virtual void process(const Action * action) override;
   bool sendLongMessage(const void *msg, const unsigned int msg_len, const byte stream_id);
   void subscribe(byte *stream_ids, const byte num_stream_ids, void *receive_buffer, const unsigned int receive_buffer_len, void (*messagehandler)(void *fragment, const unsigned int fragment_len, const byte stream_id, const byte status));
@@ -52,8 +51,8 @@ public:
   void setDelay(byte delay_in_millis);
   void setTimeout(unsigned int timeout_in_millis);
 
-  virtual byte getServiceID() override { return SERVICE_ID_STREAMING; }
-  virtual byte getServiceVersionID() override { return 1; }
+  virtual VlcbServiceTypes getServiceID() const override { return SERVICE_ID_STREAMING; }
+  virtual byte getServiceVersionID() const override { return 1; }
 
 protected:
 
@@ -70,7 +69,6 @@ protected:
   unsigned long _last_fragment_sent = 0UL, _last_fragment_received = 0UL;
 
   void (*_messagehandler)(void *fragment, const unsigned int fragment_len, const byte stream_id, const byte status);        // user callback function to receive long message fragments
-  Controller *controller;
 };
 
 

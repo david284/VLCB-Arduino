@@ -23,7 +23,8 @@ enum EepromLocations {
   LOCATION_NODE_NUMBER_HIGH = 2,
   LOCATION_NODE_NUMBER_LOW = 3,
   LOCATION_FLAGS = 4,
-  LOCATION_RESET_FLAG = 5
+  LOCATION_RESET_FLAG = 5,
+  LOCATION_RESERVED_SIZE = 10 // NVs/EVs can start from here.
 };
 
 enum FlagBits {
@@ -42,25 +43,26 @@ public:
   Configuration(Storage * theStorage);
   void begin();
 
-  byte findExistingEvent(unsigned int nn, unsigned int en);
-  byte findEventSpace();
-  byte findExistingEventByEv(byte evnum, byte evval);
-
+  byte findExistingEvent(unsigned int nn, unsigned int en) const;
+  byte findEventSpace() const;
+  byte findExistingEventByEv(byte evnum, byte evval) const;
+  
   void printEvHashTable(bool raw);
-  byte getEvTableEntry(byte tindex);
-  byte numEvents();
+  byte getEvTableEntry(byte tindex) const;
+  byte numEvents() const;
   void updateEvHashEntry(byte idx);
   void clearEvHashTable();
-  byte getEventEVval(byte idx, byte evnum);
+  byte getEventEVval(byte idx, byte evnum) const;
   void writeEventEV(byte idx, byte evnum, byte evval);
 
-  byte readNV(byte idx);
+  byte readNV(byte idx) const;
   void writeNV(byte idx, byte val);
 
-  void readEvent(byte idx, byte tarr[EE_HASH_BYTES]);
+  void readEvent(byte idx, byte tarr[EE_HASH_BYTES]) const;
   void writeEvent(byte index, const byte data[EE_HASH_BYTES]);
   void cleareventEEPROM(byte index);
   void resetModule();
+  void commitToEEPROM();
 
   void setCANID(byte canid);
   void setModuleUninitializedMode();
@@ -73,13 +75,15 @@ public:
   void clearResetFlag();
   bool isResetFlagSet();
 
-  unsigned int EE_EVENTS_START;
-  byte EE_MAX_EVENTS;
-  byte EE_NUM_EVS;
-  byte EE_BYTES_PER_EVENT;
-  unsigned int EE_NVS_START;
-  byte EE_NUM_NVS;
-  byte EE_PRODUCED_EVENTS;
+  unsigned int EE_NVS_START = LOCATION_RESERVED_SIZE;
+  byte EE_NUM_NVS = 0;
+  unsigned int EE_EVENTS_START = 0; // Value calculated in begin() unless set by user.
+  byte EE_MAX_EVENTS = 0;
+  byte EE_NUM_EVS = 0;
+  byte EE_PRODUCED_EVENTS = 0;
+  byte EE_BYTES_PER_EVENT; // Value calculated in begin()
+  unsigned int EE_FREE_BASE; // Value calculated in begin()
+  unsigned int EE_USER_BYTES = 0; // Specified by user in setup for ESP processors.
 
   bool heartbeat;
   bool eventAck;
@@ -94,18 +98,18 @@ public:
   static void setTwoBytes(byte *target, unsigned int value);
   static unsigned int getTwoBytes(const byte *bytes);
   static bool nnenEquals(const byte lhs[EE_HASH_BYTES], const byte rhs[EE_HASH_BYTES]);
+  static const char * modeString(VlcbModeParams mode);
 
 private:
   Storage * storage;
 
   void setModuleMode(VlcbModeParams m);
-  byte makeHash(byte tarr[EE_HASH_BYTES]);
-  void getEvArray(byte idx);
+  byte makeHash(byte tarr[EE_HASH_BYTES]) const;
   void makeEvHashTable();
 
   void loadNVs();
 
-  unsigned int getEVAddress(byte idx, byte evnum);
+  unsigned int getEVAddress(byte idx, byte evnum) const;
 
   byte *evhashtbl;
 };

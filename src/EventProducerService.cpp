@@ -3,7 +3,7 @@
 // Licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License.
 // The full licence can be found at: http://creativecommons.org/licenses/by-nc-sa/4.0/
 
-// TODO: Add AREQ and ASRQ opcode support.
+// TODO: 
 // Check error messages
 // Set Params flags
 // Trap for EVs <2
@@ -15,15 +15,17 @@
 
 namespace VLCB {
 
-void EventProducerService::setController(Controller *cntrl) 
+//
+/// register the user handler for learned events
+//
+void EventProducerService::setRequestEventHandler(void (*fptr)(byte index, const VlcbMessage *msg)) 
 {
-  this->controller = cntrl;
-  this->module_config = cntrl->getModuleConfig();
+  requesteventhandler = fptr;
 }
 
 void EventProducerService::begin()
 {  
-  if (module_config->currentMode == MODE_UNINITIALISED)
+  if (controller->getModuleConfig()->currentMode == MODE_UNINITIALISED)
   {
     uninit = true;    
   }
@@ -31,7 +33,7 @@ void EventProducerService::begin()
 
 void EventProducerService::setProducedEvents()
 { 
-  for (byte i = 1; i <= module_config->EE_PRODUCED_EVENTS; i++)
+  for (byte i = 1; i <= controller->getModuleConfig()->EE_PRODUCED_EVENTS; i++)
   {
     createDefaultEvent(i);    
   }    
@@ -40,10 +42,11 @@ void EventProducerService::setProducedEvents()
 byte EventProducerService::createDefaultEvent(byte evValue)
 {
   // This function is only called when an event needs to be created, so no need to check if event exists.
+  Configuration *module_config = controller->getModuleConfig();
   unsigned int nodeNum = module_config->nodeNum;
   
   byte index = module_config->findEventSpace();
-  //TODO: Consider full event table error message.
+  //TODO: Consider full event table error message. Should error come from Configuration?
   
   // Find next available event number.
   unsigned int eventNum;
@@ -77,7 +80,7 @@ byte EventProducerService::createDefaultEvent(byte evValue)
 void EventProducerService::process(const Action * action)
 {
   // Do this if mode changes from uninitialised to normal
-  if (((uninit) && (module_config->currentMode == MODE_NORMAL)))
+  if (((uninit) && (controller->getModuleConfig()->currentMode == MODE_NORMAL)))
   {
     setProducedEvents();
     uninit = false;
@@ -91,6 +94,7 @@ void EventProducerService::process(const Action * action)
 
 void EventProducerService::findOrCreateEventByEv(byte evIndex, byte evValue, byte nn_en[4])
 {
+  Configuration *module_config = controller->getModuleConfig();
   byte index = module_config->findExistingEventByEv(evIndex, evValue);
   if (index >= module_config->EE_MAX_EVENTS)
   {
@@ -127,7 +131,7 @@ void EventProducerService::sendEvent(bool state, byte evValue)
   if ((nn_en[0] == 0) && (nn_en[1] == 0))
   {
     opCode = (state ? OPC_ASON : OPC_ASOF);
-    Configuration::setTwoBytes(&nn_en[0], module_config->nodeNum);
+    Configuration::setTwoBytes(&nn_en[0], controller->getModuleConfig()->nodeNum);
   }
   else
   {
@@ -137,6 +141,7 @@ void EventProducerService::sendEvent(bool state, byte evValue)
   VlcbMessage msg;
   msg.len = 5;
   sendMessage(msg, opCode, nn_en);
+  ++diagEventsProduced;
 }
 
 void EventProducerService::sendEvent(bool state, byte evValue, byte data1)
@@ -148,7 +153,7 @@ void EventProducerService::sendEvent(bool state, byte evValue, byte data1)
   if ((nn_en[0] == 0) && (nn_en[1] == 0))
   {
     opCode = (state ? OPC_ASON1 : OPC_ASOF1);
-    Configuration::setTwoBytes(&nn_en[0], module_config->nodeNum);
+    Configuration::setTwoBytes(&nn_en[0], controller->getModuleConfig()->nodeNum);
   }
   else
   {
@@ -159,7 +164,7 @@ void EventProducerService::sendEvent(bool state, byte evValue, byte data1)
   msg.len = 6;
   msg.data[5] = data1;
   sendMessage(msg, opCode, nn_en);
-
+  ++diagEventsProduced;
 }
 
 void EventProducerService::sendEvent(bool state, byte evValue, byte data1, byte data2)
@@ -171,7 +176,7 @@ void EventProducerService::sendEvent(bool state, byte evValue, byte data1, byte 
   if ((nn_en[0] == 0) && (nn_en[1] == 0))
   {
     opCode = (state ? OPC_ASON2 : OPC_ASOF2);
-    Configuration::setTwoBytes(&nn_en[0], module_config->nodeNum);
+    Configuration::setTwoBytes(&nn_en[0], controller->getModuleConfig()->nodeNum);
   }
   else
   {
@@ -183,6 +188,7 @@ void EventProducerService::sendEvent(bool state, byte evValue, byte data1, byte 
   msg.data[5] = data1;
   msg.data[6] = data2;
   sendMessage(msg, opCode, nn_en);
+  ++diagEventsProduced;
 }
 
 void EventProducerService::sendEvent(bool state, byte evValue, byte data1, byte data2, byte data3)
@@ -194,7 +200,7 @@ void EventProducerService::sendEvent(bool state, byte evValue, byte data1, byte 
   if ((nn_en[0] == 0) && (nn_en[1] == 0))
   {
     opCode = (state ? OPC_ASON3 : OPC_ASOF3);
-    Configuration::setTwoBytes(&nn_en[0], module_config->nodeNum);
+    Configuration::setTwoBytes(&nn_en[0], controller->getModuleConfig()->nodeNum);
   }
   else
   {
@@ -207,32 +213,140 @@ void EventProducerService::sendEvent(bool state, byte evValue, byte data1, byte 
   msg.data[6] = data2;
   msg.data[7] = data3;
   sendMessage(msg, opCode, nn_en);
+  ++diagEventsProduced;
 }
 
 void EventProducerService::handleProdSvcMessage(const VlcbMessage *msg) 
 {
   unsigned int opc = msg->data[0];
   unsigned int nn = Configuration::getTwoBytes(&msg->data[1]);
-  // DEBUG_SERIAL << ">VLCBProdSvc handling message op=" << _HEX(opc) << " nn=" << nn << " en" << en << endl;
-
-  switch (opc) 
-  {    
-
-    case OPC_AREQ:
-      // AREQ message - request for node state, only producer nodes
-
-      if ((nn == module_config->nodeNum) && (eventhandler != nullptr)) 
+  unsigned int en = Configuration::getTwoBytes(&msg->data[3]);
+  
+  if (requesteventhandler != nullptr)
+  {
+    switch (opc)
+    {
+      case OPC_ASRQ:
+        if ((!isThisNodeNumber(nn)) && (nn != 0000))
+        {
+          return;
+        }
+        nn = 0000;
+        break;
+        
+      case OPC_AREQ:
+        break;
+        
+      default:
+        return;
+    }
+    
+    // Handler only called for producer events.  Producer events are recognised by having EV1
+    // set to an input channel (ev value > 0)
+    Configuration *module_config = controller->getModuleConfig();
+    byte index = module_config->findExistingEvent(nn, en);
+ 
+    if (index < module_config->EE_MAX_EVENTS)
+    {
+      if (module_config->getEventEVval(index, 1) != 0)
       {
-        (void)(*eventhandler)(0, msg);
+        (void)(*requesteventhandler)(index, msg);
       }
-      break;
-
-    case OPC_ASRQ:
-
-
-
-      break;
-
+    }      
   }
+}
+
+void EventProducerService::sendEventResponse(bool state, byte index)
+{
+  byte nn_en[4];
+  controller->getModuleConfig()->readEvent(index, nn_en);
+  //DEBUG_SERIAL << ">EPService node number = 0x" << _HEX(nn_en[0]) << _HEX(nn_en[1])<< endl;
+  
+  byte opCode;
+  if ((nn_en[0] == 0) && (nn_en[1] == 0))
+  {
+    opCode = (state ? OPC_ARSON : OPC_ARSOF);
+    Configuration::setTwoBytes(&nn_en[0], controller->getModuleConfig()->nodeNum);
+  }
+  else
+  {
+    opCode = (state ? OPC_ARON : OPC_AROF);
+  }
+  
+  VlcbMessage msg;
+  msg.len = 5;
+  sendMessage(msg, opCode, nn_en);
+}
+
+void EventProducerService::sendEventResponse(bool state, byte index, byte data1)
+{
+  byte nn_en[4];
+  controller->getModuleConfig()->readEvent(index, nn_en);
+  //DEBUG_SERIAL << ">EPService node number = 0x" << _HEX(nn_en[0]) << _HEX(nn_en[1])<< endl;
+  
+  byte opCode;
+  if ((nn_en[0] == 0) && (nn_en[1] == 0))
+  {
+    opCode = (state ? OPC_ARSON1 : OPC_ARSOF1);
+    Configuration::setTwoBytes(&nn_en[0], controller->getModuleConfig()->nodeNum);
+  }
+  else
+  {
+    opCode = (state ? OPC_ARON1 : OPC_AROF1);
+  }
+  
+  VlcbMessage msg;
+  msg.len = 6;
+  msg.data[5] = data1;
+  sendMessage(msg, opCode, nn_en);
+}
+
+void EventProducerService::sendEventResponse(bool state, byte index, byte data1, byte data2)
+{
+  byte nn_en[4];
+  controller->getModuleConfig()->readEvent(index, nn_en);
+  //DEBUG_SERIAL << ">EPService node number = 0x" << _HEX(nn_en[0]) << _HEX(nn_en[1])<< endl;
+  
+  byte opCode;
+  if ((nn_en[0] == 0) && (nn_en[1] == 0))
+  {
+    opCode = (state ? OPC_ARSON2 : OPC_ARSOF2);
+    Configuration::setTwoBytes(&nn_en[0], controller->getModuleConfig()->nodeNum);
+  }
+  else
+  {
+    opCode = (state ? OPC_ARON2 : OPC_AROF2);
+  }
+  
+  VlcbMessage msg;
+  msg.len = 7;
+  msg.data[5] = data1;
+  msg.data[6] = data2;
+  sendMessage(msg, opCode, nn_en);
+}
+
+void EventProducerService::sendEventResponse(bool state, byte index, byte data1, byte data2, byte data3)
+{
+  byte nn_en[4];
+  controller->getModuleConfig()->readEvent(index, nn_en);
+  //DEBUG_SERIAL << ">EPService node number = 0x" << _HEX(nn_en[0]) << _HEX(nn_en[1])<< endl;
+  
+  byte opCode;
+  if ((nn_en[0] == 0) && (nn_en[1] == 0))
+  {
+    opCode = (state ? OPC_ARSON3 : OPC_ARSOF3);
+    Configuration::setTwoBytes(&nn_en[0], controller->getModuleConfig()->nodeNum);
+  }
+  else
+  {
+    opCode = (state ? OPC_ARON3 : OPC_AROF3);
+  }
+  
+  VlcbMessage msg;
+  msg.len = 8;
+  msg.data[5] = data1;
+  msg.data[6] = data2;
+  msg.data[7] = data3;
+  sendMessage(msg, opCode, nn_en);
 }
 }

@@ -4,7 +4,7 @@ and must be implemented by concrete service classes.
 
 The VLCB system is configured with a set of services that implement the functionality
 needed by the VLCB module.
-A list of services provided in this VLCB library are listed in the section [Provided Services](#provided-services).
+A list of services provided in this VLCB library are listed in the section [Provided Services](#services-provided-in-this-vlcb-library).
 
 User defined services are encouraged to implement new functionality that is not covered
 by the provided services
@@ -46,7 +46,7 @@ There is no need to bump up the version number for minor changes and bug fixes.
 
 process
 : This method that be called regularly. 
-It has a pointer to a Action that needs to be processed or a null pointer if there is
+It has a pointer to an Action that needs to be processed or a null pointer if there is
 no Action to be processed.
 Use this for any processing that needs to be performed now and then such as polling for
 changes of input pins.

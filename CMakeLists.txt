@@ -51,11 +51,16 @@ add_library(core_library OBJECT
         src/CanTransport.h
         src/Storage.h
         src/Service.h
+        src/Service.cpp
         src/LongMessageService.h
         src/MinimumNodeService.cpp
         src/MinimumNodeService.h
+        src/MinimumNodeServiceWithDiagnostics.h
+        src/MinimumNodeServiceWithDiagnostics.cpp
         src/CanService.cpp
         src/CanService.h
+        src/CanServiceWithDiagnostics.cpp
+        src/CanServiceWithDiagnostics.h
         src/EventConsumerService.cpp
         src/EventConsumerService.h
         src/EventTeachingService.cpp
@@ -86,7 +91,8 @@ add_executable(VLCB_Arduino
         Arduino/EEPROM.h
         examples/VLCB_1in1out/VLCB_1in1out.ino
         examples/VLCB_empty/VLCB_empty.ino
-        examples/VLCB_long_message_example/VLCB_long_message_example.ino)
+        examples/VLCB_long_message_example/VLCB_long_message_example.ino
+        examples/VLCB_SerialGC_1in1out/VLCB_SerialGC_1in1out.ino)
 
 add_executable(testAll
         $<TARGET_OBJECTS:core_library>

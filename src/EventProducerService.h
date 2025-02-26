@@ -10,19 +10,18 @@
 
 namespace VLCB {
 
-class Configuration;
 struct VlcbMessage;
 
 class EventProducerService : public Service {
 public:
-  virtual void setController(Controller *cntrl) override;
+  void setRequestEventHandler(void (*fptr)(byte index, const VlcbMessage *msg));
   virtual void process(const Action * action) override;
 
-  virtual byte getServiceID() override
+  virtual VlcbServiceTypes getServiceID() const override
   {
     return SERVICE_ID_PRODUCER;
   }
-  virtual byte getServiceVersionID() override
+  virtual byte getServiceVersionID() const override
   {
     return 1;
   }
@@ -31,19 +30,26 @@ public:
   void sendEvent(bool state, byte evValue, byte data1);
   void sendEvent(bool state, byte evValue, byte data1, byte data2);
   void sendEvent(bool state, byte evValue, byte data1, byte data2, byte data3);
+  void sendEventResponse(bool state, byte index);
+  void sendEventResponse(bool state, byte index, byte data1);
+  void sendEventResponse(bool state, byte index, byte data1, byte data2);
+  void sendEventResponse(bool state, byte index, byte data1, byte data2, byte data3);
+  
 
 private:
-  Controller *controller;
-  Configuration *module_config;  // Shortcut to reduce indirection code.
-  void (*eventhandler)(byte index, const VlcbMessage *msg);
-
+  void (*requesteventhandler)(byte index, const VlcbMessage *msg);
   void handleProdSvcMessage(const VlcbMessage *msg);
+  
   void setProducedEvents();
   byte createDefaultEvent(byte evValue);
   void findOrCreateEventByEv(byte evIndex, byte evValue, byte tarr[]);
   void sendMessage(VlcbMessage &msg, byte opCode, const byte *nn_en);
 
   bool uninit = false;
+  
+protected:
+  unsigned int diagEventsProduced = 0;
+
 };
 
 }  // VLCB

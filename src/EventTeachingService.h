@@ -11,29 +11,24 @@
 namespace VLCB 
 {
 
-class Configuration;
 struct VlcbMessage;
 
 class EventTeachingService : public Service 
 {
 public:
-  virtual void setController(Controller *cntrl) override;
   virtual void process(const Action * action) override;
 
-  virtual byte getServiceID() override { return SERVICE_ID_OLD_TEACH; }
-  virtual byte getServiceVersionID() override { return 1; }
+  virtual VlcbServiceTypes getServiceID() const override { return SERVICE_ID_OLD_TEACH; }
+  virtual byte getServiceVersionID() const override { return 1; }
 
   void enableLearn();
   void inhibitLearn();
 
 private:
-  Controller *controller;
-  Configuration *module_config;  // Shortcut to reduce indirection code.
-
   bool bLearn = false;
 
   void handleMessage(const VlcbMessage *msg);
-  void handleLearnMode(const VlcbMessage *msg);
+  void handleLearnMode(const VlcbMessage *msg, unsigned int nn);
   void handleLearn(unsigned int nn);
   void handleUnlearnEvent(const VlcbMessage *msg, unsigned int nn, unsigned int en);
   void handleUnlearn(unsigned int nn);
@@ -46,6 +41,9 @@ private:
   void handleLearnEvent(const VlcbMessage *msg, unsigned int nn, unsigned int en);
   void handleLearnEventIndex(const VlcbMessage *msg);
   void handleRequestEventVariable(const VlcbMessage *msg, unsigned int nn, unsigned int en);
+    
+protected:
+  unsigned int diagEventsTaught = 0;
 };
 
 }  // VLCB

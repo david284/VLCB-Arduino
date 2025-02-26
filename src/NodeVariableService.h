@@ -11,7 +11,6 @@
 namespace VLCB
 {
 
-class Configuration;
 struct VlcbMessage;
 
 class NodeVariableService : public Service
@@ -19,15 +18,11 @@ class NodeVariableService : public Service
 
 public:
 
-  virtual void setController(Controller *cntrl) override;
-  virtual byte getServiceID() override { return SERVICE_ID_NV; }
-  virtual byte getServiceVersionID() override { return 1; }
+  virtual VlcbServiceTypes getServiceID() const override { return SERVICE_ID_NV; }
+  virtual byte getServiceVersionID() const override { return 1; }
   virtual void process(const Action * action) override;
 
 private:
-
-  Controller *controller;
-  Configuration * module_config;  // Shortcut to reduce indirection code.
 
   void handleMessage(const VlcbMessage *msg);
   void handleReadNV(const VlcbMessage *msg, unsigned int nn);

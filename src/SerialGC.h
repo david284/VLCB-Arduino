@@ -27,7 +27,7 @@ namespace VLCB
   class SerialGC : public CanTransport
   {
   public:
-
+    SerialGC(typeof(Serial)& _serial = Serial) : serial(_serial) {}
     bool begin();
 
     bool available() override;
@@ -35,15 +35,19 @@ namespace VLCB
     bool sendCanFrame(CANFrame *frame) override;
     void reset() override;
 
-    unsigned int receiveCounter() override { return receivedCount; }
-    unsigned int transmitCounter() override { return transmitCount; }
-    unsigned int receiveErrorCounter() override { return receiveErrorCount; }
-    unsigned int transmitErrorCounter() override { return transmitErrorCount; }
-    unsigned int errorStatus() override { return 0; }
-
+    virtual unsigned int receiveCounter() override { return receivedCount; }
+    virtual unsigned int transmitCounter() override { return transmitCount; }
+    virtual unsigned int receiveErrorCounter() override { return receiveErrorCount; }
+    virtual unsigned int transmitErrorCounter() override { return transmitErrorCount; }
+    virtual unsigned int receiveBufferUsage() override { return 0; };
+    virtual unsigned int transmitBufferUsage() override { return 0; };
+    virtual unsigned int receiveBufferPeak() override { return 0; };
+    virtual unsigned int transmitBufferPeak() override { return 0; };
+    virtual unsigned int errorStatus() override { return 0; }
 
   private:
-
+    typeof(Serial)& serial;
+	
     char rxBuffer[RXBUFFERSIZE]; // Define a byte array to store the incoming data
     char txBuffer[RXBUFFERSIZE]; // Define a byte array to store the outgoing data
     CANFrame rxCANFrame;

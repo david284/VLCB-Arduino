@@ -13,12 +13,6 @@ namespace VLCB
 
 const int DEFAULT_PRIORITY = 0xB;     // default Controller messages priority. 1011 = 2|3 = normal/low
 
-void CanService::setController(Controller *cntrl)
-{
-  this->controller = cntrl;
-  this->module_config = cntrl->getModuleConfig();
-}
-
 void CanService::process(const Action *action)
 {
   checkIncomingCanFrame();
@@ -79,34 +73,41 @@ void CanService::handleSetCANID(const VlcbMessage *msg, unsigned int nn)
 {
   // DEBUG_SERIAL << F("> CANID for nn = ") << nn << F(" with new CANID = ") << msg->data[3] << endl;
 
-  if (nn == module_config->nodeNum)
+  if (!isThisNodeNumber(nn))
   {
-    // DEBUG_SERIAL << F("> setting my CANID to ") << msg->data[3] << endl;
-    byte newCANID = msg->data[3];
-    if (newCANID < 1 || newCANID > 99)
-    {
-      controller->sendCMDERR(CMDERR_INV_EN_IDX);
-      controller->sendGRSP(OPC_CANID, getServiceID(), CMDERR_INV_EN_IDX);
-    }
-    else
-    {
-      module_config->setCANID(newCANID);
-      controller->sendWRACK();
-      controller->sendGRSP(OPC_CANID, getServiceID(), GRSP_OK);
-    }
+    return;
   }
+
+  controller->messageActedOn();
+
+  // DEBUG_SERIAL << F("> setting my CANID to ") << msg->data[3] << endl;
+  byte newCANID = msg->data[3];
+  if (newCANID < 1 || newCANID > 99)
+  {
+    controller->sendCMDERR(CMDERR_INV_EN_IDX);
+    controller->sendGRSP(OPC_CANID, getServiceID(), CMDERR_INV_EN_IDX);
+    return;
+  }
+
+  controller->getModuleConfig()->setCANID(newCANID);
+  controller->sendWRACK();
+  controller->sendGRSP(OPC_CANID, getServiceID(), GRSP_OK);
 }
 
 void CanService::handleEnumeration(unsigned int nn)
 {
   // DEBUG_SERIAL << F("> ENUM message for nn = ") << nn << F(" from CANID = ") << remoteCANID << endl;
-  // DEBUG_SERIAL << F("> my nn = ") << module_config->nodeNum << endl;
+  // DEBUG_SERIAL << F("> my nn = ") << controller->getModuleConfig()->nodeNum << endl;
 
-  if (nn == module_config->nodeNum)
+  if (!isThisNodeNumber(nn))
   {
-    // DEBUG_SERIAL << F("> initiating enumeration") << endl;
-    startCANenumeration(true);
+    return;
   }
+
+  controller->messageActedOn();
+
+  // DEBUG_SERIAL << F("> initiating enumeration") << endl;
+  startCANenumeration(true);
 }
 
 //
@@ -127,8 +128,8 @@ void CanService::startCANenumeration(bool fromENUM)
     // already enumerating.
     return;
   }
-  // initiate CAN bus enumeration cycle, either due to ENUM opcode, ID clash, or user button press
 
+  // initiate CAN bus enumeration cycle, either due to ENUM opcode, ID clash, or user button press
   // DEBUG_SERIAL << F("> beginning self-enumeration cycle") << endl;
 
   // set global variables
@@ -305,4 +306,5 @@ byte CanService::findFreeCanId()
 
   return 1;     // default if no responses from other modules
 }
+
 }
