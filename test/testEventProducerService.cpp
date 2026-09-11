@@ -41,10 +41,10 @@ void testServiceDiscovery()
   VLCB::Controller controller = createController();
   controller.begin();
 
-  VLCB::VlcbMessage msg = {4, {OPC_RQSD, 0x01, 0x04, 0}};
+  VLCB::VlcbMessage msg = VLCB::VlcbMessage(OPC_RQSD).addNN(260).addData(0);
   mockTransportService->setNextMessage(msg);
 
-  process(controller);
+  processWithTasks(controller);
 
   // Verify sent messages.
   assertEquals(4, mockTransportService->sent_messages.size());
@@ -70,7 +70,7 @@ void testServiceDiscoveryEventProdSvc()
   VLCB::Controller controller = createController();
   controller.begin();
 
-  VLCB::VlcbMessage msg = {4, {OPC_RQSD, 0x01, 0x04, 2}};
+  VLCB::VlcbMessage msg = VLCB::VlcbMessage(OPC_RQSD).addNN(260).addData(2);
   mockTransportService->setNextMessage(msg);
 
   process(controller);
@@ -83,7 +83,68 @@ void testServiceDiscoveryEventProdSvc()
   // Not testing service data bytes.
 }
 
-void testSendOn()
+void testSendShortEventOn()
+{
+  test();
+
+  VLCB::Controller controller = createController();
+  controller.begin();
+
+  eventProducerService->sendShortEvent(true, 40);
+
+  process(controller);
+
+  assertEquals(1, mockTransportService->sent_messages.size());
+  assertEquals(OPC_ASON, mockTransportService->sent_messages[0].data[0]);
+  assertEquals(5, mockTransportService->sent_messages[0].len);
+  assertEquals(0x01, mockTransportService->sent_messages[0].data[1]);
+  assertEquals(0x04, mockTransportService->sent_messages[0].data[2]);
+  assertEquals(0x00, mockTransportService->sent_messages[0].data[3]);
+  assertEquals(40, mockTransportService->sent_messages[0].data[4]);
+}
+
+void testSendLongEventOff()
+{
+  test();
+
+  VLCB::Controller controller = createController();
+  controller.begin();
+
+  eventProducerService->sendLongEvent(false, 41);
+
+  process(controller);
+
+  assertEquals(1, mockTransportService->sent_messages.size());
+  assertEquals(OPC_ACOF, mockTransportService->sent_messages[0].data[0]);
+  assertEquals(5, mockTransportService->sent_messages[0].len);
+  assertEquals(0x01, mockTransportService->sent_messages[0].data[1]);
+  assertEquals(0x04, mockTransportService->sent_messages[0].data[2]);
+  assertEquals(0x00, mockTransportService->sent_messages[0].data[3]);
+  assertEquals(41, mockTransportService->sent_messages[0].data[4]);
+
+}
+
+void testSendLongEventWithSpoofedNodeNumberOn()
+{
+  test();
+
+  VLCB::Controller controller = createController();
+  controller.begin();
+
+  eventProducerService->sendLongEventWithSpoofedNodeNumber(true, 17, 42);
+
+  process(controller);
+
+  assertEquals(1, mockTransportService->sent_messages.size());
+  assertEquals(OPC_ACON, mockTransportService->sent_messages[0].data[0]);
+  assertEquals(5, mockTransportService->sent_messages[0].len);
+  assertEquals(0, mockTransportService->sent_messages[0].data[1]);
+  assertEquals(17, mockTransportService->sent_messages[0].data[2]);
+  assertEquals(0, mockTransportService->sent_messages[0].data[3]);
+  assertEquals(42, mockTransportService->sent_messages[0].data[4]);
+}
+
+void testSendIndexedEventOn()
 {
   test();
 
@@ -91,11 +152,10 @@ void testSendOn()
   controller.begin();
 
   // Initialize a produced event
-  byte nnen[] = { 0x01, 0x04, 0x00, 0x01};
-  controller.getModuleConfig()->writeEvent(0, nnen);
+  controller.getModuleConfig()->writeEvent(0, 260, 1);
   controller.getModuleConfig()->writeEventEV(0, 1, 1);
 
-  eventProducerService->sendEvent(true, 1);
+  eventProducerService->sendEventAtIndex(true, 0);
 
   process(controller);
 
@@ -108,7 +168,7 @@ void testSendOn()
   assertEquals(0x01, mockTransportService->sent_messages[0].data[4]);
 }
 
-void testSend1Off()
+void testSendIndexedEvent1Off()
 {
   test();
 
@@ -116,11 +176,10 @@ void testSend1Off()
   controller.begin();
 
   // Initialize a produced event
-  byte nnen[] = { 0x01, 0x04, 0x00, 0x01};
-  controller.getModuleConfig()->writeEvent(0, nnen);
+  controller.getModuleConfig()->writeEvent(0, 260, 1);
   controller.getModuleConfig()->writeEventEV(0, 1, 1);
 
-  eventProducerService->sendEvent(false, 1, 42);
+  eventProducerService->sendEventAtIndex(false, 0, 42);
 
   process(controller);
 
@@ -134,7 +193,7 @@ void testSend1Off()
   assertEquals(42, mockTransportService->sent_messages[0].data[5]);
 }
 
-void testSendShort2On()
+void testSendShortIndexedEvent2On()
 {
   test();
 
@@ -142,11 +201,10 @@ void testSendShort2On()
   controller.begin();
 
   // Initialize a produced event
-  byte nnen[] = { 0x00, 0x00, 0x00, 0x05};
-  controller.getModuleConfig()->writeEvent(0, nnen);
+  controller.getModuleConfig()->writeEvent(0, 0, 5);
   controller.getModuleConfig()->writeEventEV(0, 1, 7);
 
-  eventProducerService->sendEvent(true, 7, 42, 17);
+  eventProducerService->sendEventAtIndex(true, 0, 42, 17);
 
   process(controller);
   
@@ -161,7 +219,7 @@ void testSendShort2On()
   assertEquals(17, mockTransportService->sent_messages[0].data[6]);
 }
 
-void testSendShort3Off()
+void testSendShortIndexedEvent3Off()
 {
   test();
 
@@ -169,11 +227,10 @@ void testSendShort3Off()
   controller.begin();
 
   // Initialize a produced event
-  byte nnen[] = { 0x00, 0x00, 0x00, 0x05};
-  controller.getModuleConfig()->writeEvent(0, nnen);
+  controller.getModuleConfig()->writeEvent(0, 0, 5);
   controller.getModuleConfig()->writeEventEV(0, 1, 7);
 
-  eventProducerService->sendEvent(false, 7, 42, 17, 234);
+  eventProducerService->sendEventAtIndex(false, 0, 42, 17, 234);
 
   process(controller);
   
@@ -189,7 +246,7 @@ void testSendShort3Off()
   assertEquals(234, mockTransportService->sent_messages[0].data[7]);
 }
 
-void testSetProducedDefaultEventsOnNewBoard()
+void testNoDefaultEventsOnNewBoard()
 {
   test();
 
@@ -199,68 +256,10 @@ void testSetProducedDefaultEventsOnNewBoard()
 
   minimumNodeService->setNormal(0x0104);
 
-  // Should have no events configured at start
+  process(controller);
+
+  // Default events are not created automatically
   assertEquals(0, controller.getModuleConfig()->numEvents());
-
-  process(controller);
-
-  assertEquals(1, controller.getModuleConfig()->numEvents());
-  byte eventArray[VLCB::EE_HASH_BYTES];
-  controller.getModuleConfig()->readEvent(0, eventArray);
-  assertEquals(0x01, eventArray[0]);
-  assertEquals(0x04, eventArray[1]);
-  assertEquals(0x00, eventArray[2]);
-  assertEquals(0x01, eventArray[3]);
-  assertEquals(1, controller.getModuleConfig()->getEventEVval(0, 1));
-}
-
-void testSendEventMissingInTable()
-{
-  test();
-
-  VLCB::Controller controller = createController();
-  controller.begin();
-
-  // No event exists in event table.
-  eventProducerService->sendEvent(true, 1);
-
-  process(controller);
-
-  assertEquals(1, mockTransportService->sent_messages.size());
-  assertEquals(5, mockTransportService->sent_messages[0].len);
-  assertEquals(OPC_ACON, mockTransportService->sent_messages[0].data[0]);
-  assertEquals(0x01, mockTransportService->sent_messages[0].data[1]);
-  assertEquals(0x04, mockTransportService->sent_messages[0].data[2]);
-  assertEquals(0x00, mockTransportService->sent_messages[0].data[3]);
-  assertEquals(0x01, mockTransportService->sent_messages[0].data[4]);
-}
-
-void testSendEventDeletedFromTable()
-{
-  test();
-
-  VLCB::Controller controller = createController();
-  controller.begin();
-
-  // Create a default produced event.
-  byte nnen[] = { 0x01, 0x04, 0x00, 0x01};
-  controller.getModuleConfig()->writeEvent(0, nnen);
-  controller.getModuleConfig()->writeEventEV(0, 1, 1);
-  // And delete it.
-  controller.getModuleConfig()->cleareventEEPROM(0);
-
-  // Event with EV1=1 exists but its nn/en has been cleared.
-  eventProducerService->sendEvent(true, 1);
-
-  process(controller);
-
-  assertEquals(1, mockTransportService->sent_messages.size());
-  assertEquals(5, mockTransportService->sent_messages[0].len);
-  assertEquals(OPC_ACON, mockTransportService->sent_messages[0].data[0]);
-  assertEquals(0x01, mockTransportService->sent_messages[0].data[1]);
-  assertEquals(0x04, mockTransportService->sent_messages[0].data[2]);
-  assertEquals(0x00, mockTransportService->sent_messages[0].data[3]);
-  assertEquals(0x01, mockTransportService->sent_messages[0].data[4]);
 }
 
 byte capturedIndex;
@@ -282,15 +281,13 @@ void testLongRequestStatus()
   controller.begin();
 
   // Add some long events
-  byte eventData[] = {0x01, 0x04, 0x00, 0x00};
-  configuration->writeEvent(0, eventData);
+  configuration->writeEvent(0, 260, 0);
   configuration->updateEvHashEntry(0);
 
-  eventData[3] = 0x01;
-  configuration->writeEvent(1, eventData);
+  configuration->writeEvent(1, 260, 1);
   configuration->updateEvHashEntry(1);
 
-  VLCB::VlcbMessage msg = {5, {OPC_AREQ, 0x01, 0x04, 0, 1}};
+  VLCB::VlcbMessage msg = VLCB::VlcbMessage(OPC_AREQ).addNN(260).addEN(1);
   mockTransportService->setNextMessage(msg);
 
   process(controller);
@@ -312,15 +309,13 @@ void testShortRequestStatusWithNN()
   controller.begin();
 
   // Add some long events
-  byte eventData[] = {0x00, 0x00, 0x00, 0x00};
-  configuration->writeEvent(0, eventData);
+  configuration->writeEvent(0, 0, 0);
   configuration->updateEvHashEntry(0);
 
-  eventData[3] = 0x01;
-  configuration->writeEvent(1, eventData);
+  configuration->writeEvent(1, 0, 1);
   configuration->updateEvHashEntry(1);
 
-  VLCB::VlcbMessage msg = {5, {OPC_ASRQ, 0x01, 0x04, 0, 1}};
+  VLCB::VlcbMessage msg = VLCB::VlcbMessage(OPC_ASRQ).addNN(260).addEN(1);
   mockTransportService->setNextMessage(msg);
 
   process(controller);
@@ -342,15 +337,13 @@ void testShortRequestStatusWithoutNN()
   controller.begin();
 
   // Add some long events
-  byte eventData[] = {0x00, 0x00, 0x00, 0x00};
-  configuration->writeEvent(0, eventData);
+  configuration->writeEvent(0, 0, 0);
   configuration->updateEvHashEntry(0);
 
-  eventData[3] = 0x01;
-  configuration->writeEvent(1, eventData);
+  configuration->writeEvent(1, 0, 1);
   configuration->updateEvHashEntry(1);
 
-  VLCB::VlcbMessage msg = {5, {OPC_ASRQ, 0, 0, 0, 1}};
+  VLCB::VlcbMessage msg = VLCB::VlcbMessage(OPC_ASRQ).addNN(0).addEN(1);
   mockTransportService->setNextMessage(msg);
 
   process(controller);
@@ -372,15 +365,13 @@ void testShortRequestStatusWithDifferentNN()
   controller.begin();
 
   // Add some long events
-  byte eventData[] = {0x00, 0x00, 0x00, 0x00};
-  configuration->writeEvent(0, eventData);
+  configuration->writeEvent(0, 0, 0);
   configuration->updateEvHashEntry(0);
 
-  eventData[3] = 0x01;
-  configuration->writeEvent(1, eventData);
+  configuration->writeEvent(1, 0, 1);
   configuration->updateEvHashEntry(1);
 
-  VLCB::VlcbMessage msg = {5, {OPC_ASRQ, 0x01, 0x05, 0, 1}};
+  VLCB::VlcbMessage msg = VLCB::VlcbMessage(OPC_ASRQ).addNN(261).addEN(1);
   mockTransportService->setNextMessage(msg);
 
   process(controller);
@@ -400,12 +391,10 @@ void testLongSendEventResponse()
   controller.begin();
 
   // Add some long events
-  byte eventData[] = {0x01, 0x04, 0x00, 0x00};
-  configuration->writeEvent(0, eventData);
+  configuration->writeEvent(0, 260, 0);
   configuration->updateEvHashEntry(0);
 
-  eventData[3] = 0x01;
-  configuration->writeEvent(1, eventData);
+  configuration->writeEvent(1, 260, 1);
   configuration->updateEvHashEntry(1);
 
   eventProducerService->sendEventResponse(true, 1);
@@ -433,12 +422,10 @@ void testShortSendEventResponse()
   controller.begin();
 
   // Add some long events
-  byte eventData[] = {0x00, 0x00, 0x00, 0x00};
-  configuration->writeEvent(0, eventData);
+  configuration->writeEvent(0, 0, 0);
   configuration->updateEvHashEntry(0);
 
-  eventData[3] = 0x01;
-  configuration->writeEvent(1, eventData);
+  configuration->writeEvent(1, 0, 1);
   configuration->updateEvHashEntry(1);
 
   eventProducerService->sendEventResponse(false, 1);
@@ -462,13 +449,14 @@ void testEventProducerService()
 {
   testServiceDiscovery();
   testServiceDiscoveryEventProdSvc();
-  testSendOn();
-  testSend1Off();
-  testSendShort2On();
-  testSendShort3Off();
-  testSetProducedDefaultEventsOnNewBoard();
-  testSendEventMissingInTable();
-  testSendEventDeletedFromTable();
+  testSendShortEventOn();
+  testSendLongEventOff();
+  testSendLongEventWithSpoofedNodeNumberOn();
+  testSendIndexedEventOn();
+  testSendIndexedEvent1Off();
+  testSendShortIndexedEvent2On();
+  testSendShortIndexedEvent3Off();
+  testNoDefaultEventsOnNewBoard();
   testLongRequestStatus();
   testShortRequestStatusWithNN();
   testShortRequestStatusWithoutNN();

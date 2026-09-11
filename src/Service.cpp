@@ -9,9 +9,9 @@
 namespace VLCB
 {
 
-bool Service::isThisNodeNumber(unsigned int nn)
+bool Service::isThisNodeNumber(unsigned int nodeNumber)
 {
-  return nn == controller->getModuleConfig()->nodeNum;
+  return nodeNumber == controller->getModuleConfig()->nodeNum;
 }
 
 void Service::reportDiagnostics(byte serviceIndex, byte diagnosticsCode)
@@ -20,10 +20,10 @@ void Service::reportDiagnostics(byte serviceIndex, byte diagnosticsCode)
   controller->sendGRSP(OPC_RDGN, SERVICE_ID_MNS, GRSP_INVALID_DIAGNOSTIC);
 }
 
-void Service::reportAllDiagnostics(byte serviceIndex)
+Service::Data Service::getServiceData()
 {
-  // Default implementation is to not support diagnostics.
-  controller->sendDGN(serviceIndex, 0, 0);
+  // Default implementation is to return 0 for all service data bytes.
+  return {0, 0, 0 };
 }
 
 }

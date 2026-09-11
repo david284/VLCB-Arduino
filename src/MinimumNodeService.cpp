@@ -7,9 +7,28 @@
 
 #include "MinimumNodeService.h"
 #include "Controller.h"
+#include "TimedResponse.h"
 
 namespace VLCB
 {
+
+static void copyName(VlcbMessage &dest, const char *name)
+{
+  int i = 0;
+  for (; i < 7 ; ++i)
+  {
+    if (name[i] == '\0')
+    {
+      // If the string is shorter than 7 chars, then don't copy the null and continue below to pad with spaces. 
+      break;
+    }
+    dest.addData(name[i]);
+  }
+  for (; i < 7 ; ++i)
+  {
+    dest.addData(' ');
+  }
+}
 
 void MinimumNodeService::begin()
 {
@@ -18,10 +37,12 @@ void MinimumNodeService::begin()
   noHeartbeat = !controller->getModuleConfig()->heartbeat;
   controller->indicateMode(instantMode);
   //DEBUG_SERIAL << F("> instant MODE initialise as: ") << instantMode << endl;
+  
+  notFcuCompatible = !controller->getModuleConfig()->fcuCompatible;
 }
 
 //
-/// initiate the transition from Uninitialised to Normal mode
+// initiate the transition from Uninitialised to Normal mode
 //
 void MinimumNodeService::initSetupFromUninitialised()
 {
@@ -54,7 +75,7 @@ void MinimumNodeService::setNormal(unsigned int nn)
 }
 
 //
-/// set module to Uninitialised mode
+// set module to Uninitialised mode
 //
 void MinimumNodeService::setUninitialised()
 {
@@ -69,7 +90,7 @@ void MinimumNodeService::setUninitialised()
 }
 
 //
-/// request new node number
+// request new node number
 //
 void MinimumNodeService::initSetupFromNormal()
 {
@@ -92,39 +113,34 @@ void MinimumNodeService::heartbeat()
 }
 
 //
-/// MinimumNode Service processing procedure
+// MinimumNode Service processing procedure
 //
 
-void MinimumNodeService::process(const Action *action)
+void MinimumNodeService::processAction(const Action &action)
 {
-  if (action != nullptr)
+  switch (action.actionType)
   {
-    switch (action->actionType)
-    {
-      case ACT_CHANGE_MODE:
-        switch (instantMode)
-        {
-        case MODE_UNINITIALISED:
+    case ACT_CHANGE_MODE:
+      switch (instantMode)
+      {
+      case MODE_UNINITIALISED:
           initSetupFromUninitialised();
           break;
            
-        case MODE_NORMAL:
-        case MODE_SETUP:
+      default:
+          // If in Setup or Normal or any invalid mode, revert back to Uninitialised mode.
           setUninitialised();
           break;
-           
-        default:
-          break;
-        }
-        break;
+      }
+      break;
       
-      case ACT_RENEGOTIATE:
-        switch (instantMode)
-        {
-        case MODE_UNINITIALISED:
+    case ACT_RENEGOTIATE:
+      switch (instantMode)
+      {
+      case MODE_UNINITIALISED:
           break;
           
-        case MODE_SETUP:
+      case MODE_SETUP:
           // Cancel setup and revert to previous mode.
           instantMode = controller->getModuleConfig()->currentMode;
           controller->indicateMode(instantMode);
@@ -137,30 +153,28 @@ void MinimumNodeService::process(const Action *action)
             
           break;
            
-        case MODE_NORMAL:
+      case MODE_NORMAL:
           initSetupFromNormal();
           break;
            
-        default:
-          break;
-        }
-        break;
-      
-      case ACT_MESSAGE_IN:
-        handleMessage(&action->vlcbMessage);
-        break;
-
       default:
           break;
-    }
-  }
+      }
+      break;
+      
+    case ACT_MESSAGE_IN:
+      handleMessage(&action.vlcbMessage);
+      break;
 
-  heartbeat();
+    default:
+      break;
+  }
 }
 
-// TODO: This list is used while implementing MNS. Remove once done.
-// MNS shall implement these opcodes in incoming requests
-// * RDGN - Request Diagnostic Data (0x87)
+void MinimumNodeService::process()
+{
+  heartbeat();
+}
 
 void MinimumNodeService::handleMessage(const VlcbMessage *msg)
 {
@@ -222,11 +236,9 @@ void MinimumNodeService::handleMessage(const VlcbMessage *msg)
       if (instantMode == MODE_SETUP || (controller->getParam(PAR_FLAGS) & PF_LRN))
       {
         // respond with NAME
-        VlcbMessage response;
-        response.len = 8;
-        response.data[0] = OPC_NAME;
-        memcpy(response.data + 1, controller->getModuleName(), 7);
-        controller->sendMessage(&response);
+        VlcbMessage response(OPC_NAME);
+        copyName(response, module_config->getModuleName());
+        controller->sendMessage(response);
         controller->messageActedOn();
       }
       break;
@@ -275,21 +287,34 @@ void MinimumNodeService::handleRequestNodeParameters()
   // DEBUG_SERIAL << F("> responding to RQNP with PARAMS") << endl;
 
   // respond with PARAMS message
-  VlcbMessage response;
-  response.len = 8;
-  response.data[0] = OPC_PARAMS;    // opcode
-  response.data[1] = controller->getParam(PAR_MANU);     // manf code -- MERG
-  response.data[2] = controller->getParam(PAR_MINVER);     // minor code ver
-  response.data[3] = controller->getParam(PAR_MTYP);     // module ident
-  response.data[4] = controller->getParam(PAR_EVTNUM);     // number of events
-  response.data[5] = controller->getParam(PAR_EVNUM);     // events vars per event
-  response.data[6] = controller->getParam(PAR_NVNUM);     // number of NVs
-  response.data[7] = controller->getParam(PAR_MAJVER);     // major code ver
+  VlcbMessage response(OPC_PARAMS);    // opcode
+  response.addData(controller->getParam(PAR_MANU));     // manf code -- MERG
+  response.addData(controller->getParam(PAR_MINVER));     // minor code ver
+  response.addData(controller->getParam(PAR_MTYP));     // module ident
+  response.addData(controller->getParam(PAR_EVTNUM));     // number of events
+  response.addData(controller->getParam(PAR_EVNUM));     // events vars per event
+  response.addData(controller->getParam(PAR_NVNUM));     // number of NVs
+  response.addData(controller->getParam(PAR_MAJVER));     // major code ver
 
-  controller->sendMessage(&response);
+  controller->sendMessage(response);
   controller->messageActedOn();
 }
 
+class RespondParam : public TimedResponse::Task
+{
+public: 
+  RespondParam(Controller *controller) : Task(controller) {}
+  virtual TimedResponse::Result runStep() override
+  {
+    if (sequence > controller->getParam(PAR_NUM))
+    {
+      return TimedResponse::FINISHED;
+    }
+    controller->sendMessageWithNN(OPC_PARAN, sequence, controller->getParam((VlcbParams) sequence));
+    return TimedResponse::PROGRESS;
+  }
+};
+  
 void MinimumNodeService::handleRequestNodeParameter(const VlcbMessage *msg, unsigned int nn)
 {
   if (!isThisNodeNumber(nn))
@@ -307,16 +332,13 @@ void MinimumNodeService::handleRequestNodeParameter(const VlcbMessage *msg, unsi
 
     //DEBUG_SERIAL << F("> RQNPN request for parameter # ") << paran << F(", from nn = ") << nn << endl;
 
-    if (paran == 0)
+    if ((paran == 0) && notFcuCompatible)
     {
-      for (byte i = 0; i <= controller->getParam(PAR_NUM); i++)
-      {
-        controller->sendMessageWithNN(OPC_PARAN, i, controller->getParam(i));
-      }
+      controller->addTimedResponseTask(new RespondParam(controller));
     }
     else if (paran <= controller->getParam(PAR_NUM))
     {
-      controller->sendMessageWithNN(OPC_PARAN, paran, controller->getParam(paran));
+      controller->sendMessageWithNN(OPC_PARAN, paran, controller->getParam((VlcbParams) paran));
     }
     else
     {
@@ -369,6 +391,25 @@ static int countServices(const VLCB::ArrayHolder<Service *> &services)
   return count;
 }
 
+class RespondService : public TimedResponse::Task
+{
+public: 
+  RespondService(Controller *controller) : Task(controller) {}
+  virtual TimedResponse::Result runStep() override
+  {
+    if (sequence >= controller->getServices().size())
+    {
+      return TimedResponse::FINISHED;
+    }
+    Service * svc = controller->getServices()[sequence];
+    if (svc->getServiceID() > 0)
+    {
+      controller->sendMessageWithNN(OPC_SD, sequence+1, svc->getServiceID(), svc->getServiceVersionID());
+    }
+    return TimedResponse::PROGRESS;
+  }
+};
+
 void MinimumNodeService::handleRequestServiceDefinitions(const VlcbMessage *msg, unsigned int nn)
 {
   if (!isThisNodeNumber(nn))
@@ -390,16 +431,7 @@ void MinimumNodeService::handleRequestServiceDefinitions(const VlcbMessage *msg,
     controller->sendMessageWithNN(OPC_SD, 0, 0, serviceCount);
 
     // and then details of each service.
-    byte svcIndex = 0;
-    for (auto svc: controller->getServices())
-    {
-      ++svcIndex;
-      if (svc->getServiceID() > 0)
-      {
-        // TODO: Need to space out these messages, put in a queue or use a TimedResponse structure.
-        controller->sendMessageWithNN(OPC_SD, svcIndex, svc->getServiceID(), svc->getServiceVersionID());
-      }
-    }
+    controller->addTimedResponseTask(new RespondService(controller));
   }
   else if (serviceIndex <= controller->getServices().size())
   {
@@ -411,12 +443,15 @@ void MinimumNodeService::handleRequestServiceDefinitions(const VlcbMessage *msg,
     }
     else
     {
-      controller->sendMessageWithNN(OPC_ESD, serviceIndex, theService->getServiceID(), 0, 0, 0);
+      // Find service data from the actual service.
+      auto svcData = theService->getServiceData();
+      controller->sendMessage(VlcbMessage(OPC_ESD).addNN(controller->getModuleConfig()->nodeNum)
+        .addData(serviceIndex).addData(theService->getServiceID()).addData(svcData.data1).addData(svcData.data2).addData(svcData.data3));
     }
   }
   else
   {
-    Serial << "RQSD wrong svcIx=" << serviceIndex << endl;
+    // DEBUG_SERIAL << "RQSD wrong svcIx=" << serviceIndex << endl;
     // Couldn't find the service.
     controller->sendGRSP(OPC_RQSD, getServiceID(), GRSP_INVALID_SERVICE);
   }
@@ -498,6 +533,12 @@ void MinimumNodeService::handleModeMessage(const VlcbMessage *msg, unsigned int 
     case MODE_HEARTBEAT_OFF:
       noHeartbeat = (requestedMode == MODE_HEARTBEAT_OFF);
       controller->getModuleConfig()->setHeartbeat(!noHeartbeat);
+      break;
+      
+    case MODE_FCUCOMPAT_ON:
+    case MODE_FCUCOMPAT_OFF:
+      notFcuCompatible = (requestedMode == MODE_FCUCOMPAT_OFF);
+      controller->getModuleConfig()->setFcuCompatability(!notFcuCompatible);
       break;
       
     default:

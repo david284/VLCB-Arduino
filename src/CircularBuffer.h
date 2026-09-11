@@ -10,27 +10,27 @@
 namespace VLCB
 {
 
-template <typename E>
+template <typename E, int bufferCapacity = 4>
 class CircularBuffer
 {
 public:
-  explicit CircularBuffer(uint8_t bufferCapacity = 4);
+  explicit CircularBuffer();
   ~CircularBuffer();
 
-  bool available();
+  bool available() const;
   E *peek();
   const E & pop();
   void put(const E &entry);
   void clear();
 
   // Diagnostic metrics access
-  unsigned int getNumberOfPuts();
-  unsigned int getNumberOfGets();
-  unsigned int getOverflows();
-  unsigned int getHighWaterMark();   // High Watermark
+  uint8_t bufUse() const;
+  unsigned int getNumberOfPuts() const { return numPuts; }
+  unsigned int getNumberOfGets() const { return numGets; }
+  unsigned int getOverflows() const { return numOverflows; }
+  unsigned int getHighWaterMark() const { return hwm; }
 
 private:
-  uint8_t bufUse();
 
   uint8_t capacity;
   uint8_t head = 0;
@@ -38,41 +38,38 @@ private:
   bool full = false;
 
   // Diagnostic metrics
-  uint8_t hwm = 0;  // High watermark
+  uint8_t hwm = 0;  // High water Mark
   uint8_t numPuts = 0;
   uint8_t numGets = 0;
   uint8_t numOverflows = 0;
 
-  E *buffer;
+  E buffer[bufferCapacity];
 };
 
 
-template <typename E>
-CircularBuffer<E>::CircularBuffer(uint8_t bufferCapacity)
+template <typename E, int bufferCapacity>
+CircularBuffer<E, bufferCapacity>::CircularBuffer()
         : capacity(bufferCapacity)
-        , buffer(new E[capacity])
 {}
 
-template <typename E>
-CircularBuffer<E>::~CircularBuffer()
+template <typename E, int bufferCapacity>
+CircularBuffer<E, bufferCapacity>::~CircularBuffer()
 {
-  delete[] buffer;
 }
 
 /// if buffer has one or more stored items
-template <typename E>
-bool CircularBuffer<E>::available()
+template <typename E, int bufferCapacity>
+bool CircularBuffer<E, bufferCapacity>::available() const
 {
   return full || (head != tail);
 }
 
-/// store an item to the buffer - overwrite oldest item if buffer is full
+/// store an item to the buffer - overwrite the oldest item if buffer is full
 /// never called from an interrupt context so we don't need to worry about interrupts
-template <typename E>
-void CircularBuffer<E>::put(const E &msg)
+template <typename E, int bufferCapacity>
+void CircularBuffer<E, bufferCapacity>::put(const E &entry)
 {
-//  E msg;
-  buffer[head] = msg;
+  buffer[head] = entry;
 
   if (full)
   {
@@ -94,8 +91,8 @@ void CircularBuffer<E>::put(const E &msg)
 }
 
 /// retrieve the next item from the buffer, requires that available() is checked first.
-template <typename E>
-const E & CircularBuffer<E>::pop()
+template <typename E, int bufferCapacity>
+const E & CircularBuffer<E, bufferCapacity>::pop()
 {
   uint8_t oldTail = tail;
   full = false;
@@ -106,8 +103,8 @@ const E & CircularBuffer<E>::pop()
 }
 
 /// peek at the next item in the buffer without removing it
-template <typename E>
-E *CircularBuffer<E>::peek()
+template <typename E, int bufferCapacity>
+E *CircularBuffer<E, bufferCapacity>::peek()
 {
   // should always call ::available first to avoid this
   if (available())
@@ -121,8 +118,8 @@ E *CircularBuffer<E>::peek()
 }
 
 /// clear all items
-template <typename E>
-void CircularBuffer<E>::clear()
+template <typename E, int bufferCapacity>
+void CircularBuffer<E, bufferCapacity>::clear()
 {
   head = 0;
   tail = 0;
@@ -130,8 +127,8 @@ void CircularBuffer<E>::clear()
 }
 
 /// recalculate number of items in the buffer
-template <typename E>
-uint8_t CircularBuffer<E>::bufUse()
+template <typename E, int bufferCapacity>
+uint8_t CircularBuffer<E, bufferCapacity>::bufUse() const
 {
   int8_t size = capacity;
   if (!full)
@@ -143,33 +140,6 @@ uint8_t CircularBuffer<E>::bufUse()
     }
   }
   return size;
-}
-
-/// number of puts
-template <typename E>
-unsigned int CircularBuffer<E>::getNumberOfPuts()
-{
-  return numPuts;
-}
-
-/// number of gets
-template <typename E>
-unsigned int CircularBuffer<E>::getNumberOfGets()
-{
-  return numGets;
-}
-
-/// number of overflows
-template <typename E>
-unsigned int CircularBuffer<E>::getOverflows()
-{
-  return numOverflows;
-}
-
-template <typename E>
-unsigned int CircularBuffer<E>::getHighWaterMark()
-{
-  return hwm;
 }
 
 }

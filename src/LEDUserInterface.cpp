@@ -10,6 +10,13 @@
 namespace VLCB
 {
 
+// Controller push button hold time for SLiM/FLiM transition in millis = 4 seconds
+const unsigned int SW_TR_HOLD = 4000U;
+
+// These intervals are defined in VLCB Technical Introduction chapter 6 - Module User Interface
+const int PULSE_ACTIVITY = 20;
+const int PULSE_WORK = 250;
+
 LEDUserInterface::LEDUserInterface(byte greenLedPin, byte yellowLedPin, byte pushButtonPin)
   : greenLed(greenLedPin), yellowLed(yellowLedPin), pushButton(pushButtonPin)
 {
@@ -21,7 +28,7 @@ bool LEDUserInterface::isButtonPressed()
   return pushButton.isPressed();
 }
 
-void LEDUserInterface::process(const Action *action)
+void LEDUserInterface::process()
 {
   pushButton.run();
   greenLed.run();
@@ -29,40 +36,46 @@ void LEDUserInterface::process(const Action *action)
 
   if (resetRequested())
   {
-    //DEBUG_SERIAL << F("> Button is pressed for mode change") << endl;
+    // Serial << F("> Button is pressed for mode change") << endl;
     indicateMode(MODE_SETUP);
   }
-  
-  handleAction(action);
 
   checkRequestedAction();
 }
 
-void LEDUserInterface::handleAction(const Action *action)
+void LEDUserInterface::processAction(const Action &action)
 {
-  if (action == nullptr)
-  {
-    return;
-  }
-
-  switch (action->actionType)
+  switch (action.actionType)
   {
     case ACT_INDICATE_ACTIVITY:
-      indicateActivity();
+      if (controller->getModuleConfig()->currentMode == MODE_UNINITIALISED)
+      {
+        yellowLed.pulse(PULSE_ACTIVITY);
+      }
+      else
+      {
+        greenLed.pulse(PULSE_ACTIVITY);
+      }
+      break;
+      
+    case ACT_INDICATE_WORK:
+      if (controller->getModuleConfig()->currentMode == MODE_UNINITIALISED)
+      {
+        yellowLed.pulse(PULSE_WORK);
+      }
+      else
+      {
+        greenLed.pulse(PULSE_WORK);
+      }
       break;
 
     case ACT_INDICATE_MODE:
-      indicateMode(action->mode);
+      indicateMode(action.mode);
       break;
       
     default:
       break;
   }
-}
-
-void LEDUserInterface::indicateActivity()
-{
-  greenLed.pulse();
 }
 
 bool LEDUserInterface::resetRequested()

@@ -7,6 +7,7 @@
 
 // header files
 #include <Arduino.h>
+#include <Stream.h>
 #include <Controller.h>
 #include <CanTransport.h>
 #include <GridConnect.h>
@@ -19,24 +20,25 @@ namespace VLCB
   // grid connect should be 28 characters maximum
   static const int RXBUFFERSIZE = 30;
 
-  //
-  /// an implementation of the Transport interface class
-  /// to support the gridconnect protocol over serial
-  //
-
+  /// @brief Implementation of the Transport interface class
+  /// to support the gridconnect protocol over serial connection
   class SerialGC : public CanTransport
   {
   public:
-    SerialGC(typeof(Serial)& _serial = Serial) : serial(_serial) {}
+    SerialGC(Stream& _serial = Serial) : serial(_serial) {}
+    /// @cond LIBRARY
     bool begin();
 
-    bool available() override;
-    CANFrame getNextCanFrame() override;
-    bool sendCanFrame(CANFrame *frame) override;
-    void reset() override;
+    virtual bool available() override;
+    virtual CANFrame getNextCanFrame() override;
+    virtual bool sendCanFrame(CANFrame *frame) override;
+    virtual void reset() override;
+    virtual byte getHardwareType() { return CAN_HW_SERIAL; };
 
     virtual unsigned int receiveCounter() override { return receivedCount; }
     virtual unsigned int transmitCounter() override { return transmitCount; }
+    virtual unsigned int receiveBufferSize() override { return RXBUFFERSIZE; }
+    virtual unsigned int transmitBufferSize() override { return RXBUFFERSIZE; }
     virtual unsigned int receiveErrorCounter() override { return receiveErrorCount; }
     virtual unsigned int transmitErrorCounter() override { return transmitErrorCount; }
     virtual unsigned int receiveBufferUsage() override { return 0; };
@@ -44,9 +46,10 @@ namespace VLCB
     virtual unsigned int receiveBufferPeak() override { return 0; };
     virtual unsigned int transmitBufferPeak() override { return 0; };
     virtual unsigned int errorStatus() override { return 0; }
+    /// @endcond
 
   private:
-    typeof(Serial)& serial;
+    Stream& serial;
 	
     char rxBuffer[RXBUFFERSIZE]; // Define a byte array to store the incoming data
     char txBuffer[RXBUFFERSIZE]; // Define a byte array to store the outgoing data

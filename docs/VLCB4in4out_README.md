@@ -16,25 +16,11 @@ The program includes a library that manages the LED functionality.
 NOTE: It can get difficult when using DEBUG to know where the message has come from. Those
 emanating from the sketch are preceded with the letters sk for sketch. 
 
+This example sketch uses serial communication using the GridConnect protocol.
+
 ## Using VLCB4in4out
 
-The MCP2515 interface requires five Arduino pins to be allocated. Three of these are fixed
-in the architecture of the Arduino processor. One pin must be connected to an interrupt
-capable Arduino pin. You can only use pin 2 or 3 on an Uno. The Chip Select pin can be 
-freely defined. This example is configured for use with an Uno but can easily be adapted
-for use with other Arduino types.
-
-If the MERG Kit 110 CAN Shield is used, the following pins are connected by default:
-
-Pin | Description
---- | ---
-Digital pin 2 | Interrupt CAN
-Digital pin 10| (SS)    CS    CAN
-Digital pin 11| (MOSI)  SI    CAN
-Digital pin 12| (MISO)  SO    CAN
-Digital pin 13| (SCK)   Sck   CAN
-
-Using the CAN Shield, the following pins are used for VLCB Initialisation:
+VLCB4in4out uses the following pins for VLCB Initialisation:
 
 Pin | Description
 --- | ---
@@ -61,17 +47,6 @@ libraries are required:
 Library | Purpose
 ---------------|-----------------
 Streaming.h  |*C++ stream style output, v5, (http://arduiniana.org/libraries/streaming/)*
-Bounce2.h    |*Debounce of switch inputs*
-ACAN2515.h   |*library to support the MCP2515/25625 CAN controller IC*
-
-### Application Configuration
-
-The example is configured for use with the MERG Kit 110 CAN Shield. This has a crystal
-frequency of 16MHz.  If you use another CAN2515 board, the crystal frequency may be 8MHz.
-In this case it will be necessary to change the code at or about line 173 appropriately:
-```
-can2515.setOscFreq(16000000UL);   // select the crystal frequency of the CAN module
-```
 
 ### VLCB Op Codes
 
@@ -89,7 +64,10 @@ OP_CODE | HEX | Function
 ### Event Variables
 
 Event Variable 1 (EV1) identifies a consumed only event if its value is zero.
-A non-zero value will identify the source (in this case switch) for a produced
+A value of 255 identifies the event as a request for [Start-of-Day reporting](#start-of-day-event),
+i.e. send an event for each input to update control panels etc, of the current
+state.
+A value of 1 to 4 will identify the source (in this case switch) for a produced
 event.
 
 ### Consumed Events
@@ -128,10 +106,12 @@ the Node Window.  When the event variable dialogue opens, put the index number o
 the switch to be associated with the event in EV1 and press OK.  The selected
 switch will now generate that short event (but see [FCU Anomalies](#fcu-anomalies) below).
 
-If a switch default has been unlearnt and that switch not been assigned to an
-event by the FCU, operation of the switch will result in a new default event
-being generated as long as its NV Value is set for a function other than
-"Do Nothing" (See Node Variables below).
+If a switch is operated, and its associated NV value is set to an action,
+but there is no event with EV1 value matching the switch number, then a
+default event will be created for that switch.
+This event will have a node number matching the node number of this node and
+an event number that matches the switch number, if available, otherwise the 
+lowest available event number will be used.
 
 ### Consume Own Events
 
@@ -145,6 +125,25 @@ value of 0xFF if not written to. Event Variable 1 will contain the value of
 the producer trigger or switch. If the Event Variables are populated as shown
 in the table in the Consumed Events Section above, the LEDs will respond
 accordingly to a Produced Event.
+
+### Start-of-Day event
+When a Start-of-Day event is received the node will respond
+with an event for each input (switch) to indicate its state.
+
+Note that ON-only switches and OFF-only switches do not
+generate these state events as the state will always be ON or OFF.
+
+A toggle switch should ideally remember its state when
+powering off the node. 
+Instead, the reported state for a toggle switch will be the
+default state unless it has not changed state since start up 
+of the node.
+
+Instead of sending all response events in a loop a [TimedResponse](https://svenrosvall.github.io/VLCB-Arduino/html.sketch/_timed_response_8h.html) instance, StartOfDayResponse, is used.
+This object is called by the library at an interval to separate the responses
+in time.
+Each call will use a different sequence number which is used to identify which
+switch to report state for.
 
 ## Node Variables
 

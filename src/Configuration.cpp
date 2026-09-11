@@ -12,15 +12,19 @@
 
 #include "Configuration.h"
 
+#define DEBUG 0  // set to 0 for no serial debug
+
+#if DEBUG
+#define DEBUG_PRINT(S) Serial << S << endl
+#else
+#define DEBUG_PRINT(S)
+#endif
+
 #ifdef __AVR__
 extern "C" int __heap_start, *__brkval;
 #endif
 
-#ifdef __SAM3X8E__
-extern "C" char* sbrk(int incr);
-#endif
-
-#ifdef ARDUINO_ARCH_RP2040
+#if defined(__SAM3X8E__) || defined(ARDUINO_ARCH_RP2040) || defined(ARDUINO_MINIMA) || defined(ARDUINO_UNOWIFIR4) || defined(ARDUINO_NANO_R4)
 extern "C" char* sbrk(int incr);
 #endif
 
@@ -48,15 +52,16 @@ Configuration::Configuration(Storage * theStorage)
 //
 void Configuration::begin()
 {
-  EE_BYTES_PER_EVENT = EE_HASH_BYTES + EE_NUM_EVS;
+  EE_BYTES_PER_EVENT = EE_HASH_BYTES + getNumEVs();
   if (EE_EVENTS_START == 0)
   {
-    EE_EVENTS_START = EE_NVS_START + EE_NUM_NVS;
+    EE_EVENTS_START = EE_NVS_START + getNumNodeVariables();
     // Note: The formula above does not allow for upgrades to user app where NVs are added 
     // as this would move the location for stored events. 
   }
+  EE_FREE_BASE = EE_EVENTS_START + (EE_BYTES_PER_EVENT * getNumEvents());
 
-  storage->begin();
+  storage->begin(EE_FREE_BASE + EE_USER_BYTES);
   loadNVs();
 
   if ((storage->read(LOCATION_MODE) == 0xFF) && (nodeNum == 0xFFFF))   // EEPROM is in factory virgin state
@@ -68,8 +73,6 @@ void Configuration::begin()
   }
 
   makeEvHashTable();
-  
-  EE_FREE_BASE = EE_EVENTS_START + (EE_BYTES_PER_EVENT * EE_MAX_EVENTS);
 }
 
 void Configuration::setModuleUninitializedMode()
@@ -84,14 +87,15 @@ void Configuration::setModuleNormalMode(unsigned int nodeNumber)
   currentMode = (VlcbModeParams) (storage->read(LOCATION_MODE)); 
   if (currentMode == VlcbModeParams::MODE_UNINITIALISED)  // Ensure that NVs and EVs are cleared
   {
-    for (byte i = 1; i <= EE_NUM_NVS; i++)
+    for (byte i = 1; i <= getNumNodeVariables(); i++)
     {
       writeNV(i, 0xff);
     }
-    for (byte j = 0; j < EE_MAX_EVENTS; j++)
+    for (byte j = 0; j < getNumEvents(); j++)
     {
       cleareventEEPROM(j);
     }
+    clearEvHashTable();
   }
   
   setModuleMode(MODE_NORMAL);
@@ -120,6 +124,14 @@ void Configuration::setEventAck(bool ea)
   storage->write(LOCATION_FLAGS, servicePersist);
 }
 
+void Configuration::setFcuCompatability(bool fcu)
+{
+  fcuCompatible = fcu;
+  byte mode = storage->read(LOCATION_FLAGS);
+  bitWrite(mode, FCU_COMPATIBLE_BIT, fcu);
+  storage->write(LOCATION_FLAGS, mode);
+}
+
 //
 /// store the CANID
 //
@@ -142,7 +154,7 @@ void Configuration::setNodeNum(unsigned int nn)
 //
 /// lookup an event by node number and event number, using the hash table
 //
-byte Configuration::findExistingEvent(unsigned int nn, unsigned int en) const
+byte Configuration::findExistingEvent(unsigned int nn, unsigned int en, byte startIndex) const
 {
   byte tarray[EE_HASH_BYTES];
 
@@ -155,7 +167,7 @@ byte Configuration::findExistingEvent(unsigned int nn, unsigned int en) const
   byte tmphash = makeHash(tarray);
   // DEBUG_SERIAL << F("> event hash = ") << tmphash << endl;
 
-  for (byte i = 0; i < EE_MAX_EVENTS; i++)
+  for (byte i = startIndex; i < getNumEvents(); i++)
   {
     if (evhashtbl[i] == tmphash)
     {
@@ -169,7 +181,7 @@ byte Configuration::findExistingEvent(unsigned int nn, unsigned int en) const
   }
 
   // DEBUG_SERIAL << F("> unable to find matching event") << endl;
-  return EE_MAX_EVENTS;
+  return getNumEvents();
 }
 
 //
@@ -180,7 +192,7 @@ byte Configuration::findEventSpace() const
 {
   byte evidx;
 
-  for (evidx = 0; evidx < EE_MAX_EVENTS; evidx++)
+  for (evidx = 0; evidx < getNumEvents(); evidx++)
   {
     if (evhashtbl[evidx] == 0)
     {
@@ -195,9 +207,9 @@ byte Configuration::findEventSpace() const
 byte Configuration::findExistingEventByEv(byte evnum, byte evval) const
 {
   byte i;
-  for (i = 0; i < EE_MAX_EVENTS; i++)
+  for (i = 0; i < getNumEvents(); i++)
   {
-    if (getEventEVval(i, evnum) == evval)
+    if (evhashtbl[i] != 0 && getEventEVval(i, evnum) == evval)
     {
       break;
     }
@@ -224,6 +236,11 @@ byte Configuration::makeHash(byte tarr[EE_HASH_BYTES]) const
 
   // DEBUG_SERIAL << F("> makeHash - hash of nn = ") << nn << F(", en = ") << en << F(", = ") << hash << endl;
   return hash;
+}
+
+bool Configuration::isEventSlotInUse(byte eventIndex) const
+{
+  return evhashtbl[eventIndex] != 0;
 }
 
 //
@@ -272,9 +289,9 @@ void Configuration::makeEvHashTable()
   // DEBUG_SERIAL << F("> creating event hash table") << endl;
 
   // TODO: Check for null return. Don't call updateEvHashEntry in that case.
-  evhashtbl = (byte *)malloc(EE_MAX_EVENTS * sizeof(byte));
+  evhashtbl = (byte *)malloc(getNumEvents() * sizeof(byte));
 
-  for (byte idx = 0; idx < EE_MAX_EVENTS; idx++)
+  for (byte idx = 0; idx < getNumEvents(); idx++)
   {
     updateEvHashEntry(idx);
   }
@@ -323,7 +340,7 @@ void Configuration::clearEvHashTable()
   // zero in the hash table indicates that the corresponding event slot is free
   // DEBUG_SERIAL << F("> clearEvHashTable - clearing hash table") << endl;
 
-  for (byte i = 0; i < EE_MAX_EVENTS; i++)
+  for (byte i = 0; i < getNumEvents(); i++)
   {
     evhashtbl[i] = 0;
   }
@@ -341,7 +358,7 @@ void Configuration::printEvHashTable(bool raw)
   /*
     DEBUG_SERIAL << F("> Event hash table - ") << endl;
 
-    for (byte i = 0; i < EE_MAX_EVENTS; i++) 
+    for (byte i = 0; i < getNumEvents(); i++) 
     {
       if (evhashtbl[i] > 0)
       {
@@ -363,7 +380,7 @@ byte Configuration::numEvents() const
 {
   byte numevents = 0;
 
-  for (byte i = 0; i < EE_MAX_EVENTS; i++)
+  for (byte i = 0; i < getNumEvents(); i++)
   {
     if (evhashtbl[i] != 0)
     {
@@ -379,7 +396,7 @@ byte Configuration::numEvents() const
 //
 byte Configuration::getEvTableEntry(byte tindex) const
 {
-  if (tindex < EE_MAX_EVENTS)
+  if (tindex < getNumEvents())
   {
     return evhashtbl[tindex];
   }
@@ -415,6 +432,15 @@ void Configuration::writeNV(byte idx, byte val)
 /// write (or clear) an event to EEPROM
 /// just the first four bytes -- NN and EN
 //
+void Configuration::writeEvent(byte eventIndex, unsigned int nn, unsigned int en)
+{
+  unsigned int eeaddress = EE_EVENTS_START + (eventIndex * EE_BYTES_PER_EVENT);
+  storage->write(eeaddress, highByte(nn));
+  storage->write(eeaddress+1, lowByte(nn));
+  storage->write(eeaddress+2, highByte(en));
+  storage->write(eeaddress+3, lowByte(en));
+}
+
 void Configuration::writeEvent(byte index, const byte data[EE_HASH_BYTES])
 {
   unsigned int eeaddress = EE_EVENTS_START + (index * EE_BYTES_PER_EVENT);
@@ -430,7 +456,7 @@ void Configuration::cleareventEEPROM(byte index)
 {
   // DEBUG_SERIAL << F("> clearing event at index = ") << index << endl;
   writeEvent(index, unused_entry);
-  for (byte ev = 1; ev <= EE_NUM_EVS; ev++)
+  for (byte ev = 1; ev <= getNumEVs(); ev++)
   {
     writeEventEV(index, ev, 0xff);
   }
@@ -453,7 +479,7 @@ void Configuration::commitToEEPROM()
 #define AVR_RESET_METHOD 4     // don't use watchdog timer method as it's unreliable on some boards
 #endif
 
-void (*rebootFunc)() = 0;  // just causes a jump to address zero - not a full chip reset
+static void (*rebootFunc)() = 0;  // just causes a jump to address zero - not a full chip reset
 
 void Configuration::reboot()
 {
@@ -506,8 +532,11 @@ void Configuration::reboot()
 
 // for Raspberry Pi Pico using arduino-pico core
 #ifdef ARDUINO_ARCH_RP2040
-  watchdog_enable(100, 1);      // set watchdog timeout to 100ms and allow to expire
-  while (1);
+  rp2040.reboot();
+#endif
+  
+#if defined(ARDUINO_MINIMA) || defined(ARDUINO_UNOWIFIR4) || defined(ARDUINO_NANO_R4)
+  NVIC_SystemReset();
 #endif
 }
 
@@ -520,14 +549,10 @@ unsigned int Configuration::freeSRAM()
   int v;
   return (int)&v - (__brkval == 0 ? (int)&__heap_start : (int)__brkval);
 
-#elif defined ESP32 || defined ESP8266
+#elif defined(ESP32) || defined(ESP8266)
   return ESP.getFreeHeap();
 
-#elif defined __SAM3X8E__
-  char top;
-  return &top - reinterpret_cast<char*>(sbrk(0));
-
-#elif defined ARDUINO_ARCH_RP2040
+#elif defined(__SAM3X8E__) || defined(ARDUINO_ARCH_RP2040) || defined(ARDUINO_MINIMA) || defined(ARDUINO_UNOWIFIR4) || defined(ARDUINO_NANO_R4)
   char top;
   return &top - reinterpret_cast<char*>(sbrk(0));
 
@@ -546,7 +571,7 @@ void Configuration::resetModule()
 {
   /// implementation of resetModule() without VLCB Switch or LEDs
   // uint32_t t = millis();
-  // DEBUG_SERIAL << F("> resetting EEPROM") << endl;
+  // DEBUG_PRINT(F("> resetting EEPROM"));
 
   // clear the learned events from storage
   storage->reset();
@@ -564,10 +589,11 @@ void Configuration::resetModule()
   setResetFlag();        // set reset indicator
 
   // zero NVs (NVs number from one, not zero)
-  for (byte i = 0; i < EE_NUM_NVS; i++)
+  for (byte i = 0; i < getNumNodeVariables(); i++)
   {
     writeNV(i + 1, 0);
   }
+  commitToEEPROM();
 
   // DEBUG_SERIAL << F("> complete in ") << (millis() - t) << F(", rebooting ... ") << endl;
 
@@ -592,6 +618,7 @@ void Configuration::loadNVs()
   byte flags = storage->read(LOCATION_FLAGS);
   heartbeat = flags & (1 << HEARTBEAT_BIT);
   eventAck = flags & (1 << EVENT_ACK_BIT);
+  fcuCompatible = flags & (1 << FCU_COMPATIBLE_BIT);
   // DEBUG_SERIAL << "Configuration::loadNVs() mode=" << currentMode << ", CANID=" << CANID << ", nodeNum=" << nodeNum << ", flags=" << _HEX(flags) << endl;
 }
 
@@ -615,6 +642,11 @@ bool Configuration::isResetFlagSet()
   return (storage->read(LOCATION_RESET_FLAG) == 99);
 }
 
+void Configuration::setName(const char *mname)
+{
+  _mname = mname;
+}
+
 void Configuration::setTwoBytes(byte *target, unsigned int value)
 {
   target[0] = highByte(value);
@@ -630,5 +662,74 @@ bool Configuration::nnenEquals(const byte lhs[EE_HASH_BYTES], const byte rhs[EE_
 {
   return memcmp(rhs, lhs, EE_HASH_BYTES) == 0;
 }
+
+byte Configuration::getNumNodeVariables() const
+{
+  return _mparams.getParam(PAR_NVNUM);
+}
+
+byte Configuration::getNumEvents() const
+{
+  return _mparams.getParam(PAR_EVTNUM);
+}
+
+byte Configuration::getNumEVs() const
+{
+  return _mparams.getParam(PAR_EVNUM);
+}
+
+void Configuration::setNumNodeVariables(int n)
+{
+  _mparams.getParams()[PAR_NVNUM] = n;
+
+}
+
+void Configuration::setNumEvents(int n)
+{
+  _mparams.getParams()[PAR_EVTNUM] = n;
+}
+
+void Configuration::setNumEVs(int n)
+{
+  _mparams.getParams()[PAR_EVNUM] = n;
+}
+
+void Configuration::setFlag(VlcbParamFlags flag)
+{
+  _mparams.getParams()[PAR_FLAGS] |= flag;
+}
+
+void Configuration::clearFlag(VlcbParamFlags flag)
+{
+  _mparams.getParams()[PAR_FLAGS] &= ~flag;
+}
+
+bool Configuration::getFlag(VlcbParamFlags flag)
+{
+  return _mparams.getParam(PAR_FLAGS) & flag;
+}
+
+unsigned char Configuration::getParam(VlcbParams p)
+{
+  return _mparams.getParam(p);
+}
+
+Parameters &Configuration::getParams()
+{
+  return _mparams;
+}
+
+void Configuration::setVersion(char maj, char min, char beta)
+{   
+  _mparams.setVersion(maj, min, beta);
+}
+
+void Configuration::setModuleId(byte manu, byte moduleId)
+{
+  _mparams.setManufacturer(manu);
+  _mparams.setModuleId(moduleId);
+
+}
+
 
 }

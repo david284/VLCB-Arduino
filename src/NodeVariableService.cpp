@@ -6,17 +6,23 @@
 #include <Streaming.h>
 #include "NodeVariableService.h"
 #include "Controller.h"
+#include "TimedResponse.h"
 #include <vlcbdefs.hpp>
 
 namespace VLCB
 {
 
-void NodeVariableService::process(const Action *action)
+void NodeVariableService::processAction(const Action &action)
 {
-  if (action != nullptr && action->actionType == ACT_MESSAGE_IN)
+  if (action.actionType == ACT_MESSAGE_IN)
   {
-    handleMessage(&action->vlcbMessage);
+    handleMessage(&action.vlcbMessage);
   }
+}
+
+Service::Data NodeVariableService::getServiceData()
+{
+  return {controller->getModuleConfig()->getNumNodeVariables(), 0, 0};
 }
 
 void NodeVariableService::handleMessage(const VlcbMessage *msg)
@@ -43,6 +49,21 @@ void NodeVariableService::handleMessage(const VlcbMessage *msg)
   }
 }
 
+class RespondNodeVar : public TimedResponse::Task
+{
+public: 
+  RespondNodeVar(Controller *controller) : Task(controller) {}
+  virtual TimedResponse::Result runStep() override
+  {
+    if (sequence >= controller->getModuleConfig()->getNumNodeVariables())
+    {
+      return TimedResponse::FINISHED;
+    }
+    controller->sendMessageWithNN(OPC_NVANS, sequence + 1, controller->getModuleConfig()->readNV(sequence + 1));
+    return TimedResponse::PROGRESS;
+  }
+};
+
 void NodeVariableService::handleReadNV(const VlcbMessage *msg, unsigned int nn)
 {
   if (!isThisNodeNumber(nn))
@@ -60,7 +81,7 @@ void NodeVariableService::handleReadNV(const VlcbMessage *msg, unsigned int nn)
 
   byte nvindex = msg->data[3];
   Configuration *module_config = controller->getModuleConfig();
-  if (nvindex > module_config->EE_NUM_NVS)
+  if (nvindex > module_config->getNumNodeVariables())
   {
     controller->sendGRSP(OPC_NVRD, getServiceID(), CMDERR_INV_NV_IDX);
     controller->sendCMDERR(CMDERR_INV_NV_IDX);
@@ -69,11 +90,10 @@ void NodeVariableService::handleReadNV(const VlcbMessage *msg, unsigned int nn)
 
   if (nvindex == 0)
   {
-    controller->sendMessageWithNN(OPC_NVANS, nvindex, module_config->EE_NUM_NVS);
-
-    for (int i = 1; i <= module_config->EE_NUM_NVS; ++i)
+    controller->sendMessageWithNN(OPC_NVANS, nvindex, module_config->getNumNodeVariables());
+    if (!module_config->fcuCompatible)
     {
-      controller->sendMessageWithNN(OPC_NVANS, i, module_config->readNV(i));
+      controller->addTimedResponseTask(new RespondNodeVar(controller));
     }
   }
   else
@@ -100,7 +120,7 @@ void NodeVariableService::handleSetNV(const VlcbMessage *msg, unsigned int nn)
   }
 
   Configuration *module_config = controller->getModuleConfig();
-  if (msg->data[3] > module_config->EE_NUM_NVS)
+  if (msg->data[3] > module_config->getNumNodeVariables())
   {
     controller->sendGRSP(OPC_NVSET, getServiceID(), CMDERR_INV_NV_IDX);
     controller->sendCMDERR(CMDERR_INV_NV_IDX);
@@ -133,7 +153,7 @@ void NodeVariableService::handleSetAndReadNV(const VlcbMessage *msg, unsigned in
 
   byte nvindex = msg->data[3];
   Configuration *module_config = controller->getModuleConfig();
-  if (nvindex > module_config->EE_NUM_NVS)
+  if (nvindex > module_config->getNumNodeVariables())
   {
     controller->sendGRSP(OPC_NVSETRD, getServiceID(), CMDERR_INV_NV_IDX);
     controller->sendCMDERR(CMDERR_INV_NV_IDX);

@@ -15,9 +15,6 @@ void CanServiceWithDiagnostics::reportDiagnostics(byte serviceIndex, byte diagno
   unsigned int diagnosticsValue;
   switch (diagnosticsCode)
   {
-    case 0x00:
-      reportAllDiagnostics(serviceIndex);
-      return;
     case 0x01: // CAN RX error counter
       diagnosticsValue = canTransport->receiveErrorCounter();
       break;
@@ -39,10 +36,10 @@ void CanServiceWithDiagnostics::reportDiagnostics(byte serviceIndex, byte diagno
     case 0x09: // RX message counter
       diagnosticsValue = canTransport->receiveCounter();
       break;
-    case 0x11: // Transmit buffers used high watermark - Added in service version 2
+    case 0x11: // Transmit buffers used high water mark - Added in service version 2
       diagnosticsValue = canTransport->transmitBufferPeak();
       break;
-    case 0x12: // Receive buffers used high watermark - Added in service version 2
+    case 0x12: // Receive buffers used high water mark - Added in service version 2
       diagnosticsValue = canTransport->receiveBufferPeak();
       break;
 
@@ -67,14 +64,8 @@ void CanServiceWithDiagnostics::reportDiagnostics(byte serviceIndex, byte diagno
   controller->sendDGN(serviceIndex, diagnosticsCode, diagnosticsValue);
 }
 
-void CanServiceWithDiagnostics::reportAllDiagnostics(byte serviceIndex)
+int CanServiceWithDiagnostics::getDiagnosticCount()
 {
-  byte diagCount = 18;
-  controller->sendDGN(serviceIndex, 0, diagCount);
-  for (byte i = 1; i <= diagCount ; ++i)
-  {
-    reportDiagnostics(serviceIndex, i);
-  }
+  return 18;
 }
-
 } // VLCB

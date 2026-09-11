@@ -9,50 +9,107 @@
 #define DEBUG_SERIAL Serial
 #endif
 
-#include <SPI.h>
-
-#include <Transport.h>
 #include "initializer_list.h"
 #include "ArrayHolder.h"
 #include "CircularBuffer.h"
-#include "Parameters.h"
+#include "Configuration.h"
+#include "TimedResponse.h"
 
 namespace VLCB
 {
 
-class Configuration;
+// Size of the action queue. 
+// Testing shows that the queue often gets up to 4 elements.
+// Set size to 8 to be on the safe side.
+const int ACTION_QUEUE_SIZE = 8;
 
-//
-/// CAN/Controller message type
-//
+/// @brief VLCB message type
+/// 
+/// Describes messages send and received from other nodes on the LCB.
+/// 
+/// Construct the VlcbMessage object directly from a set of data bytes
+/// or use functions to add one data item to the message at a time.
+/// 
+/// Example:
+/// @code 
+/// VlcbMessage msg = VlcbMessage(OPC_ACON).addNN(eventNodeNumber).addEN(eventNumber);
+/// @endcode 
 struct VlcbMessage
 {
   uint8_t len; // Value 0-7 or FF for messages handled in CanTransport
   uint8_t data[8];
+  
+  VlcbMessage() = default;
+  
+  /// Construct a message from existing data
+  VlcbMessage(uint8_t len, uint8_t data[])
+    : len(len)
+  {
+    memcpy(this->data, data, len);
+  }
+
+  /// Construct a message and populate the message OP-code
+  explicit VlcbMessage(VlcbOpCodes opc)
+    : len(1)
+  {
+    data[0] = opc;
+  }
+  
+  /// Add a data byte to the message
+  VlcbMessage & addData(byte b);
+  /// Add a number as two bytes of data to the message
+  VlcbMessage & add2Bytes(unsigned int n);
+  /// Add a node number (two bytes) to the message
+  VlcbMessage & addNN(unsigned int nn) { return add2Bytes(nn); }
+  /// Add an event number (two bytes) to the message
+  VlcbMessage & addEN(unsigned int en) { return add2Bytes(en); }
+  /// Add an event identifier (NN/EN) to the message
+  VlcbMessage & addNNEN(byte nn_en[EE_HASH_BYTES]);
 };
 
-// Action type
+/// Type of Action.
 enum ACTION : byte
 {
-  ACT_MESSAGE_IN,
-  ACT_MESSAGE_OUT,
-  ACT_START_CAN_ENUMERATION,
-  ACT_CHANGE_MODE,
-  ACT_RENEGOTIATE,
-  ACT_INDICATE_ACTIVITY,
-  ACT_INDICATE_MODE,
+  ACT_MESSAGE_IN,             ///< A message coming in to the node.
+  ACT_MESSAGE_OUT,            ///< A message sent out from the node.
+  ACT_START_CAN_ENUMERATION,  ///< A request to start CAN enumeration from the user interface.
+  ACT_CHANGE_MODE,            ///< A request to change mode from the user interface.
+  ACT_RENEGOTIATE,            ///< A request to change node number from the user interface.
+  ACT_INDICATE_ACTIVITY,      ///< Some minor activity happened that should be indicated by the user interface.
+  ACT_INDICATE_WORK,          ///< Some work for the node occurred and should be indicated by the user interface.
+  ACT_INDICATE_MODE,          ///< The mode has changed and should be indicated by the user interface.
   // ...
 };
 
+/// An action to be performed.
 struct Action
 {
-  enum ACTION actionType;
+  enum ACTION actionType; ///< Type of action.
   union
   {
-    VlcbMessage vlcbMessage; // with ACT_MESSAGE_IN & ACT_MESSAGE_OUT
-    bool fromENUM; // with ACT_START_CAN_ENUMERATION
-    VlcbModeParams mode; // with ACT_INDICATE_MODE
+    VlcbMessage vlcbMessage; ///< with ACT_MESSAGE_IN & ACT_MESSAGE_OUT
+    bool fromENUM; ///< with ACT_START_CAN_ENUMERATION
+    VlcbModeParams mode; ///< with ACT_INDICATE_MODE
   };
+
+  Action() = default;
+
+  Action(ACTION type)
+    : actionType(type)
+    , fromENUM(false) // Must include one item from the union.
+  {}
+
+  Action(ACTION type, bool fromENUM)
+    : actionType(type), fromENUM(fromENUM)
+  {}
+
+  Action(ACTION type, const VlcbMessage & msg)
+    : actionType(type), vlcbMessage(msg)
+  {}
+
+  Action(ACTION type, VlcbModeParams mode)
+    : actionType(type), mode(mode)
+  {}
 };
 
 class Service;
@@ -63,30 +120,34 @@ class Service;
 class Controller
 {
 public:
-  Controller(std::initializer_list<Service *> services);
+//  Controller();
+  Controller(Configuration *conf);
+//  Controller(std::initializer_list<Service *> services);
   Controller(Configuration *conf, std::initializer_list<Service *> services);
+  
+  void setServices(std::initializer_list<Service *> services);
 
   Configuration * getModuleConfig() const { return module_config; }
 
-  void setName(const unsigned char *mname);
-  const unsigned char *getModuleName() const { return _mname; }
+  void setName(const char *mname) { module_config->setName(mname); }
 
   const ArrayHolder<Service *> & getServices() { return services; }
 
-  void setParams(VLCB::Parameters & params) { setParams( params.getParams()); }
-  void setParams(unsigned char *mparams);
+  void updateParamFlags();
   void setParamFlag(VlcbParamFlags flag, bool set);
-  unsigned char getParam(unsigned int param) const { return _mparams[param]; }
+  Parameters & getParams() { return module_config->getParams(); }
+  unsigned char getParam(VlcbParams param) const { return module_config->getParam(param); }
 
-  bool sendMessage(const VlcbMessage *msg);
+  bool sendMessage(const VlcbMessage &msg); /// Send a message
+  bool sendMessage(const VlcbMessage *msg); /// @deprecated Use the message directly instead of using a pointer.
 
   void begin();
-  inline bool sendMessageWithNN(VlcbOpCodes opc);
-  inline bool sendMessageWithNN(VlcbOpCodes opc, byte b1);
-  inline bool sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2);
-  inline bool sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2, byte b3);
-  inline bool sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2, byte b3, byte b4);
-  inline bool sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2, byte b3, byte b4, byte b5);
+  bool sendMessageWithNN(VlcbOpCodes opc);
+  bool sendMessageWithNN(VlcbOpCodes opc, byte b1);
+  bool sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2);
+  bool sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2, byte b3);
+  bool sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2, byte b3, byte b4);
+  bool sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2, byte b3, byte b4, byte b5);
   bool sendWRACK();
   bool sendCMDERR(byte cerrno);
   void sendGRSP(VlcbOpCodes opCode, byte serviceType, byte errCode);
@@ -100,54 +161,24 @@ public:
   void putAction(const Action & action);
   void putAction(ACTION action);
   bool pendingAction();
+  bool pendingTasks();
 
-  void messageActedOn() { ++diagMsgsActed; }
+  void messageActedOn();
   unsigned int getMessagesActedOn() { return diagMsgsActed; }
+  
+  const CircularBuffer<Action, ACTION_QUEUE_SIZE> & getActionQueue() const { return actionQueue; }
+
+  void addTimedResponseTask(TimedResponse::Task * task);
 
 private:
   Configuration *module_config;
   ArrayHolder<Service *> services;
 
-  unsigned char *_mparams;
-  const unsigned char *_mname;
-  
-  CircularBuffer<Action> actionQueue;
-
-  bool sendMessageWithNNandData(VlcbOpCodes opc) { return sendMessageWithNNandData(opc, 0, 0); }
-  bool sendMessageWithNNandData(VlcbOpCodes opc, int len, ...);
+  CircularBuffer<Action, ACTION_QUEUE_SIZE> actionQueue;
+  TimedResponse timedResponses;
 
   // Really an MNS diagnostic but placed here as its data is collected across all services.
   unsigned int diagMsgsActed = 0;
 };
-
-bool Controller::sendMessageWithNN(VlcbOpCodes opc)
-{
-  return sendMessageWithNNandData(opc);
-}
-
-bool Controller::sendMessageWithNN(VlcbOpCodes opc, byte b1)
-{
-  return sendMessageWithNNandData(opc, 1, b1);
-}
-
-bool Controller::sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2)
-{
-  return sendMessageWithNNandData(opc, 2, b1, b2);
-}
-
-bool Controller::sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2, byte b3)
-{
-  return sendMessageWithNNandData(opc, 3, b1, b2, b3);
-}
-
-bool Controller::sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2, byte b3, byte b4)
-{
-  return sendMessageWithNNandData(opc, 4, b1, b2, b3, b4);
-}
-
-bool Controller::sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2, byte b3, byte b4, byte b5)
-{
-  return sendMessageWithNNandData(opc, 5, b1, b2, b3, b4, b5);
-}
 
 }

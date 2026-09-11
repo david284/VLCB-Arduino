@@ -49,10 +49,10 @@ void testServiceDiscovery()
 
   VLCB::Controller controller = createController();
 
-  VLCB::VlcbMessage msg = {4, {OPC_RQSD, 0x01, 0x04, 0}};
+  VLCB::VlcbMessage msg = VLCB::VlcbMessage(OPC_RQSD).addNN(260).addData(0);
   mockTransportService->setNextMessage(msg);
 
-  process(controller);
+  processWithTasks(controller);
 
   // Verify sent messages.
   assertEquals(6, mockTransportService->sent_messages.size());
@@ -77,7 +77,7 @@ void testServiceDiscoveryEventProdSvc()
 
   VLCB::Controller controller = createController();
 
-  VLCB::VlcbMessage msg = {4, {OPC_RQSD, 0x01, 0x04, 2}};
+  VLCB::VlcbMessage msg = VLCB::VlcbMessage(OPC_RQSD).addNN(260).addData(2);
   mockTransportService->setNextMessage(msg);
 
   process(controller);
@@ -96,7 +96,7 @@ void testCoeFlag()
 
   VLCB::Controller controller = createController();
 
-  VLCB::VlcbMessage msg_rqsd = {1, {OPC_QNN}};
+  VLCB::VlcbMessage msg_rqsd = VLCB::VlcbMessage(OPC_QNN);
   mockTransportService->setNextMessage(msg_rqsd);
 
   process(controller);
@@ -105,7 +105,7 @@ void testCoeFlag()
   assertEquals(OPC_PNN, mockTransportService->sent_messages[0].data[0]);
   assertEquals(0x01, mockTransportService->sent_messages[0].data[1]);
   assertEquals(0x04, mockTransportService->sent_messages[0].data[2]);
-  assertEquals(MANU_MERG_VLCB, mockTransportService->sent_messages[0].data[3]);
+  assertEquals(MANU_MERG, mockTransportService->sent_messages[0].data[3]);
   assertEquals(MODULE_ID, mockTransportService->sent_messages[0].data[4]);
   assertEquals(PF_CONSUMER | PF_PRODUCER | PF_NORMAL | PF_COE | PF_VLCB, mockTransportService->sent_messages[0].data[5]);
 }
@@ -128,12 +128,11 @@ void testConsumeOwnEvent()
   eventConsumerService->setEventHandler(eventHandler);
 
   // Add some long events
-  byte eventData[] = {0x01, 0x04, 0x03, 0x02};
-  configuration->writeEvent(0, eventData);
+  configuration->writeEvent(0, 260, 770);
   configuration->writeEventEV(0, 1, 1);
   configuration->updateEvHashEntry(0);
 
-  eventProducerService->sendEvent(true, 1);
+  eventProducerService->sendEventAtIndex(true, 0);
 
   process(controller);
   

@@ -13,7 +13,13 @@ namespace VLCB
 
 const int DEFAULT_PRIORITY = 0xB;     // default Controller messages priority. 1011 = 2|3 = normal/low
 
-void CanService::process(const Action *action)
+Service::Data CanService::getServiceData()
+{
+  byte canType = canTransport->getHardwareType();
+  return {canType, 0, 0};
+}
+
+void CanService::process()
 {
   checkIncomingCanFrame();
 
@@ -25,24 +31,22 @@ void CanService::process(const Action *action)
   }
 
   checkCANenumTimout();
+}
 
-  if (action == nullptr)
-  {
-    return;
-  }
-
-  switch (action->actionType)
+void CanService::processAction(const Action &action)
+{
+  switch (action.actionType)
   {
     case ACT_MESSAGE_OUT:
-      sendMessage(&action->vlcbMessage);
+      sendMessage(action.vlcbMessage);
       break;
 
     case ACT_MESSAGE_IN:
-      handleCanServiceMessage(&action->vlcbMessage);
+      handleCanServiceMessage(action.vlcbMessage);
       break;
     
     case ACT_START_CAN_ENUMERATION:
-      startCANenumeration(action->fromENUM);
+      startCANenumeration(action.fromENUM);
       break;
       
     default:
@@ -50,10 +54,10 @@ void CanService::process(const Action *action)
   }
 }
 
-void CanService::handleCanServiceMessage(const VlcbMessage *msg)
+void CanService::handleCanServiceMessage(const VlcbMessage &msg)
 {
-  unsigned int opc = msg->data[0];
-  unsigned int nn = (msg->data[1] << 8) + msg->data[2];
+  unsigned int opc = msg.data[0];
+  unsigned int nn = (msg.data[1] << 8) + msg.data[2];
 
   switch (opc)
   {
@@ -69,7 +73,7 @@ void CanService::handleCanServiceMessage(const VlcbMessage *msg)
   }
 }
 
-void CanService::handleSetCANID(const VlcbMessage *msg, unsigned int nn)
+void CanService::handleSetCANID(const VlcbMessage &msg, unsigned int nn)
 {
   // DEBUG_SERIAL << F("> CANID for nn = ") << nn << F(" with new CANID = ") << msg->data[3] << endl;
 
@@ -81,7 +85,7 @@ void CanService::handleSetCANID(const VlcbMessage *msg, unsigned int nn)
   controller->messageActedOn();
 
   // DEBUG_SERIAL << F("> setting my CANID to ") << msg->data[3] << endl;
-  byte newCANID = msg->data[3];
+  byte newCANID = msg.data[3];
   if (newCANID < 1 || newCANID > 99)
   {
     controller->sendCMDERR(CMDERR_INV_EN_IDX);
@@ -113,9 +117,18 @@ void CanService::handleEnumeration(unsigned int nn)
 //
 /// extract CANID from CAN frame header
 //
-inline byte getCANID(unsigned long header)
+static inline byte getCANID(unsigned long header)
 {
   return header & 0x7f;
+}
+
+/// actual implementation of the makeHeader method
+/// so it can be called directly or as a Controller class method
+/// the 11 bit ID of a standard CAN frame is comprised of: (4 bits of CAN priority) + (7 bits of CAN ID)
+/// priority = 1011 (0xB hex, 11 dec) as default argument, which translates to medium/low
+static inline uint32_t makeHeader_impl(byte id, byte priority)
+{
+  return (priority << 7) + (id & 0x7f);
 }
 
 //
@@ -196,22 +209,12 @@ void CanService::checkIncomingCanFrame()
   }
 
   // The incoming CAN frame is a VLCB message.
-  Action action = {ACT_MESSAGE_IN, {canFrame.len}};
-  memcpy(action.vlcbMessage.data, canFrame.data, canFrame.len);
+  Action action = {ACT_MESSAGE_IN, VlcbMessage(canFrame.len, canFrame.data)};
 
   controller->putAction(action);
 }
 
-/// actual implementation of the makeHeader method
-/// so it can be called directly or as a Controller class method
-/// the 11 bit ID of a standard CAN frame is comprised of: (4 bits of CAN priority) + (7 bits of CAN ID)
-/// priority = 1011 (0xB hex, 11 dec) as default argument, which translates to medium/low
-inline uint32_t makeHeader_impl(byte id, byte priority)
-{
-  return (priority << 7) + (id & 0x7f);
-}
-
-bool CanService::sendMessage(const VlcbMessage *msg)
+bool CanService::sendMessage(const VlcbMessage &msg)
 {
   // caller must populate the frame data
   // this method will create the correct frame header (CAN ID and priority bits)
@@ -220,10 +223,10 @@ bool CanService::sendMessage(const VlcbMessage *msg)
 
   CANFrame frame;
   frame.id = makeHeader_impl(controller->getModuleCANID(), DEFAULT_PRIORITY);
-  frame.len = msg->len;
+  frame.len = msg.len;
   frame.rtr = false;
   frame.ext = false;
-  memcpy(frame.data, msg->data, msg->len);
+  memcpy(frame.data, msg.data, msg.len);
 
   controller->indicateActivity();
   return sendCanFrame(&frame);

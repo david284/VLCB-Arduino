@@ -8,7 +8,7 @@
 
 // Controller library
 #include <Controller.h>
-#include "MinimumNodeService.h"
+#include <Service.h>
 #include <stdarg.h>
 
 //
@@ -19,26 +19,53 @@
 namespace VLCB
 {
 
-// TODO: This is a sign something is wrong. Need to be this big to handle 
-// large number of generated messages such as when asking for node parameters.
-// Each entry uses 10 bytes so a size of 30 uses 300 bytes.
-// This will get worse for for example queries for all events.
-// Need a mechanism like TimedResponse to create messages slowly so they can
-// be sent through the transport without requiring this buffering. 
-const int ACTION_QUEUE_SIZE = 30;
+//Controller::Controller()
+//  : services()
+//  , actionQueue(ACTION_QUEUE_SIZE)
+//{
+//  extern Configuration config;
+//  module_config = &config;
+//}
 
-Controller::Controller(std::initializer_list<Service *> services)
-  : services(services)
-  , actionQueue(ACTION_QUEUE_SIZE)
+VlcbMessage & VlcbMessage::addData(byte b)
 {
-  extern Configuration config;
-  module_config = &config;
-
-  for (Service * service : services)
-  {
-    service->setController(this);
-  }
+  data[len++] = b;
+  return *this;
 }
+
+VlcbMessage & VlcbMessage::add2Bytes(unsigned int n)
+{
+  data[len++] = highByte(n);
+  data[len++] = lowByte(n);
+  return *this;
+}
+
+VlcbMessage & VlcbMessage::addNNEN(byte nn_en[EE_HASH_BYTES])
+{
+  for (int i = 0; i < EE_HASH_BYTES; ++i)
+  {
+    addData(nn_en[i]);
+  }
+  return *this;
+}
+
+Controller::Controller(Configuration *conf)
+  : module_config(conf)
+{
+}
+
+//Controller::Controller(std::initializer_list<Service *> services)
+//  : services(services)
+//  , actionQueue(ACTION_QUEUE_SIZE)
+//{
+//  extern Configuration config;
+//  module_config = &config;
+//
+//  for (Service * service : services)
+//  {
+//    service->setController(this);
+//  }
+//}
 
 //
 /// construct a Controller object with a Configuration object that the user provides.
@@ -47,8 +74,17 @@ Controller::Controller(std::initializer_list<Service *> services)
 Controller::Controller(Configuration *conf, std::initializer_list<Service *> services)
   : module_config(conf)
   , services(services)
-  , actionQueue(ACTION_QUEUE_SIZE)
 {
+  for (Service * service : services)
+  {
+    service->setController(this);
+  }
+}
+
+void Controller::setServices(std::initializer_list<Service *> svc)
+{
+  services = svc;
+
   for (Service * service : services)
   {
     service->setController(this);
@@ -71,42 +107,32 @@ void Controller::begin()
 //
 /// assign the module parameter set
 //
-void Controller::setParams(unsigned char *mparams)
+void Controller::updateParamFlags()
 {
-  _mparams = mparams;
-  byte flags = 0;
-  
   for (Service * svc : services)
   {
     switch (svc->getServiceID())
     {
       case SERVICE_ID_MNS:
-        flags |= PF_VLCB;
+        module_config->setFlag(PF_VLCB);
         break;
       case SERVICE_ID_PRODUCER:
-        flags |= PF_PRODUCER;
+        module_config->setFlag(PF_PRODUCER);
         break;
       case SERVICE_ID_CONSUMER:
-        flags |= PF_CONSUMER;
+        module_config->setFlag(PF_CONSUMER);
         break;
       case SERVICE_ID_CONSUME_OWN_EVENTS:
-        flags |= PF_COE;
+        module_config->setFlag(PF_COE);
+        break;
+      default:
         break;
     }
   }
   if (module_config->currentMode == MODE_NORMAL)
   {
-    flags |= PF_NORMAL; 
+    module_config->setFlag(PF_NORMAL); 
   }
-  _mparams[PAR_FLAGS] = flags;
-}
-
-//
-/// assign the module name
-//
-void Controller::setName(const unsigned char *mname)
-{
-  _mname = mname;
 }
 
 //
@@ -116,8 +142,7 @@ void Controller::setName(const unsigned char *mname)
 void Controller::indicateMode(VlcbModeParams mode)
 {
   //DEBUG_SERIAL << F("ctrl> indicating mode = ") << mode << endl;
-  Action action = {ACT_INDICATE_MODE};
-  action.mode = mode;
+  Action action = {ACT_INDICATE_MODE, mode};
   putAction(action);
   
   setParamFlag(PF_NORMAL, mode == MODE_NORMAL);
@@ -127,11 +152,11 @@ void Controller::setParamFlag(VlcbParamFlags flag, bool set)
 { 
   if (set)
   {
-    _mparams[PAR_FLAGS] |= flag;
+    module_config->setFlag(flag);
   }
   else
   {
-    _mparams[PAR_FLAGS] &= ~flag;
+    module_config->clearFlag(flag);
   }
 }
 
@@ -145,47 +170,95 @@ void Controller::indicateActivity()
 //
 void Controller::process()
 {
-  //Serial << F("Ctrl::process() start, pAction queue size = ") << actionQueue.size();
-  const Action * pAction = nullptr;
-  Action action;
+  //Serial << F("Ctrl::process() start, action queue size = ") << actionQueue.size();
   if (actionQueue.available())
   {
-    action = actionQueue.pop();
-    pAction = &action;
+    // Get the next action and store it locally so that it is not overwritten if the action queue gets full.
+    Action action = actionQueue.pop();
+    //Serial << F(" action type = ") << action.actionType << endl;
+    for (Service *service: services)
+    {
+      service->processAction(action);
+    }
   }
-  //Serial << F(" pAction type = ");
-  //if (pAction) Serial << pAction->actionType; else Serial << F("null");
-  //Serial << endl;
 
   for (Service *service: services)
   {
-    service->process(pAction);
+    service->process();
   }
+
+  timedResponses.process();
   
   module_config->commitToEEPROM();
 }
 
-bool Controller::sendMessage(const VlcbMessage *msg)
+bool Controller::sendMessage(const VlcbMessage &msg)
 {
-  Action action = {ACT_MESSAGE_OUT, *msg};
+  Action action = {ACT_MESSAGE_OUT, msg};
   actionQueue.put(action);
   return true;
 }
 
-bool Controller::sendMessageWithNNandData(VlcbOpCodes opc, int len, ...)
+bool Controller::sendMessage(const VlcbMessage *msg)
 {
-  va_list args;
-  va_start(args, len);
-  VlcbMessage msg;
-  msg.len = len + 3;
-  msg.data[0] = opc;
-  Configuration::setTwoBytes(&msg.data[1], module_config->nodeNum);
-  for (int i = 0 ; i < len ; ++i)
-  {
-    msg.data[3 + i] = va_arg(args, int);
-  }
-  va_end(args);
-  return sendMessage(&msg);  
+  return sendMessage(*msg);
+}
+
+bool Controller::sendMessageWithNN(VlcbOpCodes opc)
+{
+  VlcbMessage msg(opc);
+  msg.addNN(module_config->nodeNum);
+  return sendMessage(msg);
+}
+
+bool Controller::sendMessageWithNN(VlcbOpCodes opc, byte b1)
+{
+  VlcbMessage msg(opc);
+  msg.addNN(module_config->nodeNum);
+  msg.addData(b1);
+  return sendMessage(msg);
+}
+
+bool Controller::sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2)
+{
+  VlcbMessage msg(opc);
+  msg.addNN(module_config->nodeNum);
+  msg.addData(b1);
+  msg.addData(b2);
+  return sendMessage(msg);
+}
+
+bool Controller::sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2, byte b3)
+{
+  VlcbMessage msg(opc);
+  msg.addNN(module_config->nodeNum);
+  msg.addData(b1);
+  msg.addData(b2);
+  msg.addData(b3);
+  return sendMessage(msg);
+}
+
+bool Controller::sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2, byte b3, byte b4)
+{
+  VlcbMessage msg(opc);
+  msg.addNN(module_config->nodeNum);
+  msg.addData(b1);
+  msg.addData(b2);
+  msg.addData(b3);
+  msg.addData(b4);
+  return sendMessage(msg);
+}
+
+bool Controller::sendMessageWithNN(VlcbOpCodes opc, byte b1, byte b2, byte b3, byte b4, byte b5)
+{
+  VlcbMessage msg(opc);
+  msg.addNN(module_config->nodeNum);
+  msg.addData(b1);
+  msg.addData(b2);
+  msg.addData(b3);
+  msg.addData(b4);
+  msg.addData(b5);
+  return sendMessage(msg);
 }
 
 //
@@ -194,7 +267,7 @@ bool Controller::sendMessageWithNNandData(VlcbOpCodes opc, int len, ...)
 bool Controller::sendWRACK()
 {
   // send a write acknowledgement response
-  return sendMessageWithNN(OPC_WRACK);
+  return sendMessage(VlcbMessage(OPC_WRACK).addNN(module_config->nodeNum));
 }
 
 //
@@ -203,17 +276,17 @@ bool Controller::sendWRACK()
 bool Controller::sendCMDERR(byte cerrno)
 {
   // send a command error response
-  return sendMessageWithNN(OPC_CMDERR, cerrno);
+  return sendMessage(VlcbMessage(OPC_CMDERR).addNN(module_config->nodeNum).addData(cerrno));
 }
 
 void Controller::sendGRSP(VlcbOpCodes opCode, byte serviceType, byte errCode)
 {
-  sendMessageWithNN(OPC_GRSP, opCode, serviceType, errCode);
+  sendMessage(VlcbMessage(OPC_GRSP).addNN(module_config->nodeNum).addData(opCode).addData(serviceType).addData(errCode));
 }
 
 void Controller::sendDGN(byte serviceIndex, byte diagCode, unsigned int counter)
 {
-  sendMessageWithNN(OPC_DGN, serviceIndex, diagCode, highByte(counter), lowByte(counter));
+  sendMessage(VlcbMessage(OPC_DGN).addNN(module_config->nodeNum).addData(serviceIndex).addData(diagCode).add2Bytes(counter));
 }
 
 void Controller::putAction(const Action &action)
@@ -230,6 +303,22 @@ void Controller::putAction(ACTION action)
 bool Controller::pendingAction()
 {
   return actionQueue.available();
+}
+
+bool Controller::pendingTasks()
+{
+  return timedResponses.pendingTasks();
+}
+
+void Controller::messageActedOn()
+{
+  putAction(ACT_INDICATE_WORK);
+  ++diagMsgsActed;
+}
+
+void Controller::addTimedResponseTask(TimedResponse::Task * task)
+{
+  timedResponses.add(task);
 }
 
 }

@@ -41,7 +41,7 @@ void testNumNVs()
   VLCB::Controller controller = createController();
 
   // read parameter 6 which stores number of NVs.
-  VLCB::VlcbMessage msg = {4, {OPC_RQNPN, 0x01, 0x04, 6}};
+  VLCB::VlcbMessage msg = VLCB::VlcbMessage(OPC_RQNPN).addNN(260).addData(PAR_NVNUM);
   mockTransportService->setNextMessage(msg);
 
   process(controller);
@@ -50,7 +50,7 @@ void testNumNVs()
   assertEquals(1, mockTransportService->sent_messages.size());
 
   assertEquals(OPC_PARAN, mockTransportService->sent_messages[0].data[0]);
-  assertEquals(6, mockTransportService->sent_messages[0].data[3]); // parameter index
+  assertEquals(PAR_NVNUM, mockTransportService->sent_messages[0].data[3]); // parameter index
   assertEquals(4, mockTransportService->sent_messages[0].data[4]); // parameter value
 }
 
@@ -60,10 +60,10 @@ void testServiceDiscovery()
 
   VLCB::Controller controller = createController();
 
-  VLCB::VlcbMessage msg = {4, {OPC_RQSD, 0x01, 0x04, 0}};
+  VLCB::VlcbMessage msg = VLCB::VlcbMessage(OPC_RQSD).addNN(260).addData(0);
   mockTransportService->setNextMessage(msg);
 
-  process(controller);
+  processWithTasks(controller);
 
   // Verify sent messages.
   assertEquals(4, mockTransportService->sent_messages.size());
@@ -87,8 +87,9 @@ void testServiceDiscoveryNodeVarSvc()
   test();
 
   VLCB::Controller controller = createController();
+  controller.getModuleConfig()->setNumNodeVariables(7);
 
-  VLCB::VlcbMessage msg = {4, {OPC_RQSD, 0x01, 0x04, 2}};
+  VLCB::VlcbMessage msg = VLCB::VlcbMessage(OPC_RQSD).addNN(260).addData(2);
   mockTransportService->setNextMessage(msg);
 
   process(controller);
@@ -98,7 +99,8 @@ void testServiceDiscoveryNodeVarSvc()
   assertEquals(OPC_ESD, mockTransportService->sent_messages[0].data[0]);
   assertEquals(2, mockTransportService->sent_messages[0].data[3]); // index
   assertEquals(SERVICE_ID_NV, mockTransportService->sent_messages[0].data[4]); // service ID
-  // Not testing service data bytes.
+  
+  assertEquals(7, mockTransportService->sent_messages[0].data[5]); // Number of node variables
 }
 
 void testSetAndReadNV()
@@ -108,7 +110,7 @@ void testSetAndReadNV()
   VLCB::Controller controller = createController();
 
   // Set NV 3 to 42
-  VLCB::VlcbMessage msg = {5, {OPC_NVSET, 0x01, 0x04, 3, 42}};
+  VLCB::VlcbMessage msg = VLCB::VlcbMessage(OPC_NVSET).addNN(260).addData(3).addData(42);
   mockTransportService->setNextMessage(msg);
 
   process(controller);
@@ -120,7 +122,7 @@ void testSetAndReadNV()
   mockTransportService->clearMessages();
 
   // Read NV 3
-  msg = {4, {OPC_NVRD, 0x01, 0x04, 3}};
+  msg = VLCB::VlcbMessage(OPC_NVRD).addNN(260).addData(3);
   mockTransportService->setNextMessage(msg);
 
   process(controller);
@@ -139,7 +141,7 @@ void testSetAndReadNVnew()
   VLCB::Controller controller = createController();
 
   // Set NV 3 to 17
-  VLCB::VlcbMessage msg = {5, {OPC_NVSETRD, 0x01, 0x04, 3, 17}};
+  VLCB::VlcbMessage msg = VLCB::VlcbMessage(OPC_NVSETRD).addNN(260).addData(3).addData(17);
   mockTransportService->setNextMessage(msg);
 
   process(controller);
@@ -158,7 +160,7 @@ void testSetNVIndexOutOfBand()
   VLCB::Controller controller = createController();
 
   // Set NV 7 to 42
-  VLCB::VlcbMessage msg = {5, {OPC_NVSET, 0x01, 0x04, 7, 42}};
+  VLCB::VlcbMessage msg = VLCB::VlcbMessage(OPC_NVSET).addNN(260).addData(7).addData(42);
   mockTransportService->setNextMessage(msg);
 
   process(controller);
@@ -181,7 +183,7 @@ void testReadNVIndexOutOfBand()
   VLCB::Controller controller = createController();
 
   // Set NV 7 to 42
-  VLCB::VlcbMessage msg = {4, {OPC_NVRD, 0x01, 0x04, 7}};
+  VLCB::VlcbMessage msg = VLCB::VlcbMessage(OPC_NVRD).addNN(260).addData(7);
   mockTransportService->setNextMessage(msg);
 
   process(controller);
@@ -202,27 +204,26 @@ void testReadNVAll()
   test();
 
   VLCB::Controller controller = createController();
-  for (int i = 1 ; i <= configuration->EE_NUM_NVS ; ++i)
+  for (int i = 1 ; i <= configuration->getNumNodeVariables() ; ++i)
   {
     configuration->writeNV(i, 20 + i);
   }
 
-  // Set NV 7 to 42
-  VLCB::VlcbMessage msg = {4, {OPC_NVRD, 0x01, 0x04, 0}};
+  VLCB::VlcbMessage msg = VLCB::VlcbMessage(OPC_NVRD).addNN(260).addData(0);
   mockTransportService->setNextMessage(msg);
 
-  process(controller);
+  processWithTasks(controller);
 
   // Verify sent messages.
-  assertEquals(1 + configuration->EE_NUM_NVS, mockTransportService->sent_messages.size());
+  assertEquals(1 + configuration->getNumNodeVariables(), mockTransportService->sent_messages.size());
 
   // First response shall contain the number of NVs
   assertEquals(OPC_NVANS, mockTransportService->sent_messages[0].data[0]);
   assertEquals(0, mockTransportService->sent_messages[0].data[3]); // NV index
-  assertEquals(configuration->EE_NUM_NVS, mockTransportService->sent_messages[0].data[4]); // NV value
+  assertEquals(configuration->getNumNodeVariables(), mockTransportService->sent_messages[0].data[4]); // NV value
 
   // The following are all the NVs
-  for (int i = 1 ; i <= configuration->EE_NUM_NVS ; ++i)
+  for (int i = 1 ; i <= configuration->getNumNodeVariables() ; ++i)
   {
     assertEquals(OPC_NVANS, mockTransportService->sent_messages[i].data[0]);
     assertEquals(i, mockTransportService->sent_messages[i].data[3]); // NV index
@@ -237,7 +238,7 @@ void testSetNVnewIndexOutOfBand()
   VLCB::Controller controller = createController();
 
   // Set NV 7 to 42
-  VLCB::VlcbMessage msg = {5, {OPC_NVSETRD, 0x01, 0x04, 7, 42}};
+  VLCB::VlcbMessage msg = VLCB::VlcbMessage(OPC_NVSETRD).addNN(260).addData(7).addData(42);
   mockTransportService->setNextMessage(msg);
 
   process(controller);
@@ -259,8 +260,7 @@ void testSetNVShortMessage()
 
   VLCB::Controller controller = createController();
 
-  // Set NV 7 to 42
-  VLCB::VlcbMessage msg = {4, {OPC_NVSET, 0x01, 0x04, 1}};
+  VLCB::VlcbMessage msg = VLCB::VlcbMessage(OPC_NVSET).addNN(260).addData(1);
   mockTransportService->setNextMessage(msg);
 
   process(controller);
@@ -279,8 +279,7 @@ void testReadNVShortMessage()
 
   VLCB::Controller controller = createController();
 
-  // Set NV 7 to 42
-  VLCB::VlcbMessage msg = {3, {OPC_NVRD, 0x01, 0x04}};
+  VLCB::VlcbMessage msg = VLCB::VlcbMessage(OPC_NVRD).addNN(260);
   mockTransportService->setNextMessage(msg);
 
   process(controller);
@@ -299,8 +298,7 @@ void testSetNVnewShortMessage()
 
   VLCB::Controller controller = createController();
 
-  // Set NV 7 to 42
-  VLCB::VlcbMessage msg = {4, {OPC_NVSETRD, 0x01, 0x04, 1}};
+  VLCB::VlcbMessage msg = VLCB::VlcbMessage(OPC_NVSETRD).addNN(260).addData(1);
   mockTransportService->setNextMessage(msg);
 
   process(controller);

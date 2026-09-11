@@ -10,6 +10,8 @@
 #include "TestTools.hpp"
 
 void testCircularBuffer();
+void testLED();
+void testSwitch();
 void testConfiguration();
 void testMinimumNodeService();
 void testNodeVariableService();
@@ -20,6 +22,7 @@ void testEventTeachingService();
 void testConsumeOwnEventsService();
 void testLongMessageService();
 void testGridConnect();
+void testTimedResponse();
 
 // Remaining services to implement
 //Bootloader (the CBUS PIC version) service #10
@@ -28,6 +31,8 @@ void testGridConnect();
 std::map<std::string, void (*)()> suites = {
         {"Arduino", testArduino},
         {"CircularBuffer", testCircularBuffer},
+        {"LED", testLED},
+        {"Switch", testSwitch},
         {"Configuration", testConfiguration},
         {"MinimumNodeService", testMinimumNodeService},
         {"NodeVariableService", testNodeVariableService},
@@ -37,7 +42,8 @@ std::map<std::string, void (*)()> suites = {
         {"EventTeachingService", testEventTeachingService},
         {"ConsumeOwnEventsService", testConsumeOwnEventsService},
         {"LongMessageService", testLongMessageService},
-        {"GridConnect", testGridConnect}
+        {"GridConnect", testGridConnect},
+        {"TimedResponse", testTimedResponse}
 };
 
 int main(int argc, const char * const * argv)

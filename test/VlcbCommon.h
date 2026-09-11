@@ -16,7 +16,7 @@ class Transport;
 }
 
 const int MODULE_ID = 253;
-const unsigned char moduleName[] = {'t', 'e', 's', 't', 'i', 'n', 'g', '\0'};
+const char moduleName[] = "testing";
 
 extern std::unique_ptr<MockUserInterface> mockUserInterface;
 extern std::unique_ptr<VLCB::Configuration> configuration;
@@ -31,3 +31,4 @@ VLCB::Controller createController(VlcbModeParams startupMode, std::initializer_l
 VLCB::Controller createController(VLCB::Transport * trp, std::initializer_list<VLCB::Service *> services);
 
 void process(VLCB::Controller &controller);
+void processWithTasks(VLCB::Controller &controller);

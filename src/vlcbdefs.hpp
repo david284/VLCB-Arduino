@@ -4,7 +4,7 @@
 #ifndef __VLCBDEFS
 #define __VLCBDEFS
 
-#ifdef	__cplusplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -22,8 +22,6 @@ enum VlcbManufacturer : unsigned char
   MANU_SPROG = 44, // https://www.sprog-dcc.co.uk/
   MANU_ROCRAIL = 70, // http://www.rocrail.net
   MANU_SPECTRUM = 80, // http://animatedmodeler.com  (Spectrum Engineering)
-  MANU_MERG_VLCB = 250, // range of MERG VLCB modules
-  MANU_VLCB = 250, // range of MERG VLCB modules (Deprecated in favour of MANU_MERG_VLCB)
   MANU_SYSPIXIE = 249, // Konrad Orlowski
   MANU_RME = 248, // http://rmeuk.com  (Railway Modelling Experts Limited)
 };
@@ -124,7 +122,9 @@ enum VlcbMergModuleTypes : unsigned char
   MTYP_CANPIXEL = 84, // neopixel driver (Jon Denham)
   MTYP_CANCABPE = 85, // Cab2 with pot or encoder (Simon West hardware, Jon Denham new C firmware)
   MTYP_CANSMARTTD = 86, // Smart train detector (Michael Smith)
-  MTYP_VLCB = 0xFC, // All VLCB modules have the same ID
+  MTYP_CANARGB = 87, // Addressable LEDs (Ian Hogg)
+  MTYP_CANCDU_U = 88, // CANCDU (universal) 
+  MTYP_VLCB = 0xFC, // VLCB modules use the same manufacturer IDs as CBUS modules.
   // 
   // At the time of writing the list of defined MERG module types is maintained by Pete Brownlow software@upsys.co.uk
   // Please liaise with Pete before adding new module types, 
@@ -488,7 +488,7 @@ enum VlcbServiceTypes : unsigned char
   // 
   // VLCB Service Types
   // 
-  SERVICE_ID_HIDDEN = 0, // Pseudo services that shall not be exposed externally.
+  SERVICE_ID_NONE = 0, // Not a real service. Will not be shown in list of services requested by RQSD.
   SERVICE_ID_MNS = 1, // The minimum node service. All modules must implement this.
   SERVICE_ID_NV = 2, // The NV service.
   SERVICE_ID_CAN = 3, // CAN service. Deals with CANID enumeration.
@@ -500,6 +500,7 @@ enum VlcbServiceTypes : unsigned char
   SERVICE_ID_EVENTACK = 9, // Event acknowledge service. Useful for debugging event configuration.
   SERVICE_ID_BOOT = 10, // FCU/PIC bootloader service.
   SERVICE_ID_STREAMING = 17, // Streaming (Long Messages) service.
+  // Use IDs 240 and higher for services in development that do not yet have a service specification.
 };
 
 enum VlcbParams : unsigned char
@@ -577,6 +578,9 @@ enum VlcbModeParams : unsigned char
   MODE_HEARTBEAT_OFF = 0x0D, // Turn off heartbeat
   // Boot modes
   MODE_BOOT = 0x0E, // PIC Boot loader mode
+  // FCU Compatability
+  MODE_FCUCOMPAT_ON = 0x10, // Turn on FCU compatibility
+  MODE_FCUCOMPAT_OFF = 0x11, // Turn off FCU compatibility
 };
 
 enum VlcbBusTypes : unsigned char
@@ -652,7 +656,69 @@ enum VlcbArmProcessors : unsigned char
   ARMCortex_A53 = 3, // As used in Raspberry Pi 3
 };
 
-#ifdef	__cplusplus
+enum VlcbCanHardware : unsigned char
+{
+  // 
+  // CAN engine type codes
+  // 
+  CAN_HW_NOT_SPECIFIED = 0x00, // Not set
+  CAN_HW_PIC_ECAN = 0x01, // MICROCHIP PIC ECAN
+  CAN_HW_PIC_CAN_2_0 = 0x02, // MICROCHIP PIC CAN 2.0
+  CAN_HW_PIC_CAN_FD = 0x03, // MICROCHIP PIC CAN FD
+  CAN_HW_MCP2515 = 0x04, // MICROCHIP 2515
+  CAN_HW_MCP2518 = 0x05, // MICROCHIP 2518
+  CAN_HW_ESP32_TWAI = 0x06, // ESP32 Two Wire Automotive Interface
+  CAN_HW_SAM3X8E = 0x07, // Atmel Cortex M3
+  CAN_HW_RP2040_PIO = 0x08, // RP2040 using PIO
+  CAN_HW_SERIAL = 0x09, // Serial using GridConnect
+};
+
+enum VlcbProducerEvUsage : unsigned char
+{
+  // 
+  // Producer service EV usage
+  // 
+  PRODUCER_EV_NOT_SPECIFIED = 0x00, // Not specified
+  PRODUCER_EV_HAPPENING = 0x01, // Happenings
+  PRODUCER_EV_SLOTS = 0x02, // Slots
+};
+
+enum VlcbConsumerEvUsage : unsigned char
+{
+  // 
+  // Consumer service EV usage
+  // 
+  CONSUMER_EV_NOT_SPECIFIED = 0x00, // Not specified
+  CONSUMER_EV_ACTIONS = 0x01, // Actions
+  CONSUMER_EV_SLOTS = 0x02, // Slots
+};
+
+enum VlcbBootloaderType : unsigned char
+{
+  // 
+  // Boot service reports of the module bootloader type
+  // 
+  BL_TYPE_Unknown = 0, // Unknown or not specified
+  BL_TYPE_MikeBolton = 1, // Original bootloader from Mike Bolton, Roger Healey, Pete Brownlow and others written in PIC assembler
+  BL_TYPE_KonradOrlowski = 2, //  Konrad (syspixie) bootloader written in XC8
+  BL_TYPE_IanHogg = 3, //  Ian Hogg bootloader written in XC8
+};
+
+enum VlcbCANID : unsigned char
+{
+  // 
+  // CANIDs allocated as fixed values
+  // Note that all new modules, or new firmware for existing modules, should obtain a CANID using self enumeration and implement
+  // automatic CANID conflict resolution, so that eventually we can remove the need for fixed CANIDs
+  // 
+  CANID_CANCMD = 0x72, // (114) Fixed CANID for CANCMD or CANCSB
+  CANID_CANUSB = 0x7C, // (124) Fixed CANID for CANUSB, although in current firmware it may just use the CANID from the sending software
+  CANID_FCU = 0x7D, // (125) Default CANID used by FCU. Can be changed in settings. Note some interface modules may substitute their own CANID.
+  CANID_JMRI = 0x7E, // (126) Default CANID used by JMRI. Can be changed in connection preferences. Note some interface modules may substitute their own CANID.
+  CANID_CANEther = 0x7F, // (127) Default fixed CANID for CANEther (can be changed by modifying NV2). Note CANEther inserts its own CANID on all packets transmitted on CAN
+};
+
+#ifdef __cplusplus
 }
 #endif
 

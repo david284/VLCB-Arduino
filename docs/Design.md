@@ -5,8 +5,6 @@ This document describes the main components within the VLCB library and how they
 This VLCB library is based on Duncan Greenwood's [CBUS library](https://github.com/MERG-DEV/CBUS)
 and extended with VLCB specific features.
 
-This library is still work in progress.
-
 ## High Level Architecture
 The code is organised as a central controller object that controls functionality
 via a storage object and a set of service objects.
@@ -15,7 +13,6 @@ Services implement various groups of functionality within VLCB such as events or
 The user sketch can select the set of services needed to provide the necessary functionality
 for the VLCB module that is created.
 There are also services for user interfaces and communication over different transports such as CAN, Wi-Fi and BLE.
-Currently only a CAN transport using the CAN2515 chip is included in the library.
 
 The library supports storage for node variables and event variables in EEPROM or Flash memory.
 A Configuration object controls persistence of node specific data such as parameter, node variables
@@ -29,14 +26,21 @@ and services.
 * There is no message queuing in this diagram. Message queuing is expected to happen in the transport layer.
   Some transport hardware has message queues builtin, for others the transport implementation
   will include queues.
+* The core library only provides a concrete CanTransport for CAN over serial communication
+  by the SerialGC class. 
+  Other implementations for hardware CAN controllers are located in their own
+  libraries. This way this library does not need to dependend on other hardware
+  libraries used by the transport libraries.
 
 ## Workflow
-The Controller maintains a ```Action``` bus, which is implemented as a circular buffer.
+The Controller maintains a ```Action``` bus, which is implemented as a circular buffer of 
+[Action](https://svenrosvall.github.io/VLCB-Arduino/html.library/struct_v_l_c_b_1_1_action.html) objects.
 Each service can put actions on this bus and act on actions placed there by other services.
 An action represents tasks or information to be shared with other services. 
 The Action bus decouples services from each other and makes it easier to add new services.
 
-The main workflow is that the VLCB Controller object runs every so often from the sketch loop() function.
+The main workflow is that the VLCB Controller object runs every so often from the sketch loop() function
+which calls `VLCB::process()`.
 During each iteration the controller calls out to each service to do any processing it needs to do. 
 The top element on the action bus (if any) is included in this call.
 
@@ -48,6 +52,11 @@ the user sketch can act on this event for example to turn on an LED or move a se
 
 The user sketch may produce events that are managed by the ```EventProducerService``` object which then passes
 the event as an Action via the Controller to the transport object.
+
+A user interface service may put actions on the queue to start CAN enumeration,
+or change mode of the node.
+The user interface service will also react to actions that indicate that work
+has been performed by the node.
 
 ### Dataflow
 Most of the VLCB functionality uses a message object ```VlcbMessage``` that passes incoming and
@@ -65,6 +74,20 @@ This CAN frame is then passed to or from a CAN driver, such as CAN2515.
 CAN drivers may need to convert this CAN frame to a data structure used by any library
 that is used by that driver.
 
+### TimedResponse
+A service may respond to a request with a large number of response messages.
+Instead of creating these messages immediately and putting them all on the Action bus, a `TimedResponse`
+is used to manage their creation so as not to overwhelm the Action bus.
+
+A service creates a task object which is added to TimedResponse.
+The TimedResponse then calls this task object every 5ms to allow it to send one 
+response message. 
+The task object maintains a sequence counter to keep track of which response to 
+send at each call.
+
+The 5ms interval gives the system enough time to process and transmit the sent
+message without any of the CAN queues filling up.
+
 ## Configuration
 The Configuration object stores node variables (NV) and event variables(EV) and any other configuration
 that is required. It makes use of a storage object that has different implementations for different
@@ -77,18 +100,19 @@ It provides functions that deal with these NVs and EVs.
 It makes use of a Storage interface where implementing classes store the data at a given
 address.
 
-There are a few implementing storage classes:
+There are a few classes that implement the 
+[Storage](https://svenrosvall.github.io/VLCB-Arduino/html.library/class_v_l_c_b_1_1_storage.html) interface:
 
-EepromInternalStorage
+[EepromInternalStorage](https://svenrosvall.github.io/VLCB-Arduino/html.library/class_v_l_c_b_1_1_eeprom_internal_storage.html)
 : Stores data in EEPROM directly on the processor.
 
-EepromExternalStorage
+[EepromExternalStorage](https://svenrosvall.github.io/VLCB-Arduino/html.library/class_v_l_c_b_1_1_eeprom_external_storage.html)
 : Stores data in external EEPROM connected via I2C.
 
-DueEepromEmulationStorage
+[DueEepromEmulationStorage](https://svenrosvall.github.io/VLCB-Arduino/html.library/class_v_l_c_b_1_1_due_eeprom_emulation_storage.html)
 : Support by emulating EEPROM for the Arduino DUE.
 
-FlashStorage
+[FlashStorage](https://svenrosvall.github.io/VLCB-Arduino/html.library/class_v_l_c_b_1_1_flash_storage.html)
 : Stores data in Flash memory. Useful for modules that do not have onboard EEPROM or too
 little EEPROM.
 
@@ -99,70 +123,5 @@ VLCB offers up a message to each service in turn.
 If a service is able to handle that message no further services will be offered the message.
 Thus, the order of configured services is important.
 
-Read more about the ```Service``` interface and how services work in 
+Read more about the [Service](https://svenrosvall.github.io/VLCB-Arduino/html.library/class_v_l_c_b_1_1_service.html) interface and how services work in 
 [Service documentation](Service.md).
-
-Examples of some services:
-
-MinimumNodeService
-: Handles all the mandatory op-codes that all VLCB modules must implement. 
-These op-codes involve running modes and basic node configuration such as node number and
-module parameters.
-
-EventConsumerService
-: Handles incoming events that shall result in actions on the module.
-If the COE parameter is set it will also handle outgoing events.
-
-ConsumeOwnEventsService
-: Enables passing events produced by the producer service back to the consumer service.
-It doesn't do anything else than setting the COE parameter flag which also tells
-the EventConsumerService to also look for outgoing events on the action bus.
-
-LongMessageService
-: Handles the long message extension to CBUS as defined in RFC005.
-
-LEDUserInterface
-: Implements a low level UI using a push button, a green LED and a yellow LED.
-
-It will be possible to implement new user interfaces that make use of, for example, an OLED screen or simply
-use the USB connection for serial communication.
-
-## Diagnostics
-
-Diagnostics are optional. 
-The implementation of diagnostics uses substantial amount of memory which
-might not be available in smaller processors.
-This library provides a choice to enable or omit diagnostics by using a
-variation of service classes.
-
-The services listed above do not have diagnostics included.
-To enable diagnostics choose service classes with a "WithDiagnostics" suffix.
-E.g. The CAN service class ```CanService``` does not provide diagnostics
-while the class ```CanServiceWithDiagnostics``` does provide diagnostics.
-
-Note: Not all services have a diagnostics enabled counterpart yet.
-
-## User Sketch
-
-A user sketch needs to set up the required VLCB objects and then call ```VLCB.process()``` from 
-the main loop.
-
-The setup code may look like:
-```
-// Global definitions
-VLCB::LEDUserInterface userInterface(greenLedPin, yellowLedPin, pushButtonPin); 
-VLCB::CAN2515 can2515(interruptPin, csPin); 
-VLCB::CanService canService(&can2515);
-VLCB::EepromInternalStorage eepromStorage;
-VLCB::MnsService mnsService;
-VLCB::EventConsumerService eventConsumerService(myActionCallback);
-VLCB::Controller moduleController(eepromStorage, {mnsService, userInterface, canService, eventConsumerService});
-
-setup()
-{
-  canTransport.setNumBuffers(2);
-  canTransport.setOscFreq(OSC_FREQ);
-  canTransport.begin();
-}
-```
-See also the example sketches how to use the VLCB library.

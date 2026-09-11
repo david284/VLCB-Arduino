@@ -10,9 +10,16 @@
 
 namespace VLCB {
 
+/// @brief Service for consuming events that this node has produced.
+/// 
+/// # Consue Own Events Service API
+/// 
+/// This service is used when a user node wants to act on a produced
+/// event as if it was an incoming event. 
 class ConsumeOwnEventsService : public Service
 {
 public:
+  /// @cond LIBRARY
   virtual VlcbServiceTypes getServiceID() const override
   {
     return SERVICE_ID_CONSUME_OWN_EVENTS;
@@ -22,9 +29,7 @@ public:
   {
     return 1;
   }
-
-  virtual void process(const Action * action) override
-  {}
+  /// @endcond 
 };
 
 }  // VLCB

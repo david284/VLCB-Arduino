@@ -1,0 +1,124 @@
+//  Copyright (C) Sven Rosvall (sven@rosvall.ie)
+//  This file is part of VLCB-Arduino project on https://github.com/SvenRosvall/VLCB-Arduino
+//  Licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License.
+//  The full licence can be found at: http://creativecommons.org/licenses/by-nc-sa/4.0
+
+/*
+      3rd party libraries needed for compilation: (not for binary-only distributions)
+
+      Streaming   -- C++ stream style output, v5, (http://arduiniana.org/libraries/streaming/)
+*/
+
+
+//
+// This is a modified version of VLCB_empty
+// It uses the ModifiedGridConnect protocol over serial instead of a CAN interface
+// this allows a single module to connect via a USB cable to a management tool like FCU
+// without a CAN network
+//
+
+
+// 3rd party libraries
+#include <Streaming.h>
+
+// VLCB library header files
+#include <VLCB.h>
+#include <SerialGC.h>               // replaces CAN controller
+
+// forward function declarations
+void printConfig();
+
+// constants
+const byte VER_MAJ = 1;             // code major version
+const char VER_MIN = 'a';           // code minor version
+const byte VER_BETA = 0;            // code beta sub-version
+const byte MANUFACTURER = MANU_DEV; // for boards in development.
+const byte MODULE_ID = 98;          // VLCB module type
+
+// module name, must be at most 7 characters
+char mname[] = "EMPTY";
+
+const byte LED_GRN = 4;             // VLCB green Unitialised LED pin
+const byte LED_YLW = 7;             // VLCB yellow Normal LED pin
+const byte SWITCH0 = 8;             // VLCB push button switch pin
+
+VLCB::SerialGC serialGC;                  // CAN transport object using serial
+
+// Service objects
+VLCB::LEDUserInterface ledUserInterface(LED_GRN, LED_YLW, SWITCH0);
+VLCB::MinimumNodeServiceWithDiagnostics mnService;
+VLCB::CanServiceWithDiagnostics canService(&serialGC);
+
+//
+/// setup VLCB - runs once at power on from setup()
+//
+void setupVLCB()
+{
+  VLCB::checkStartupAction(LED_GRN, LED_YLW, SWITCH0);
+
+  VLCB::setServices({
+    &mnService, &ledUserInterface, &canService});
+
+  // set module parameters
+  VLCB::setVersion(VER_MAJ, VER_MIN, VER_BETA);
+  VLCB::setModuleId(MANUFACTURER, MODULE_ID);
+
+  // set module name
+  VLCB::setName(mname);
+
+  // configure and start Serial GridConnect transport
+  if (!serialGC.begin())
+  {
+    Serial << F("> error starting VLCB") << endl;
+  }
+
+  // initialise and load configuration
+  VLCB::begin();
+
+  Serial << F("> mode = ") << VLCB::Configuration::modeString(VLCB::getCurrentMode());
+  Serial << F(", CANID = ") << VLCB::getCANID();
+  Serial << F(", NN = ") << VLCB::getNodeNum() << endl;
+
+  // show code version and copyright notice
+  printConfig();
+}
+
+//
+/// setup - runs once at power on
+//
+void setup()
+{
+  Serial.begin (115200);
+  Serial << endl << endl << F("> ** VLCB Arduino basic example module ** ") << __FILE__ << endl;
+
+  setupVLCB();
+
+  // end of setup
+  Serial << F("> ready") << endl << endl;
+}
+
+//
+/// loop - runs forever
+//
+void loop()
+{
+  //
+  /// do VLCB message, switch and LED processing
+  //
+  VLCB::process();
+
+  // bottom of loop()
+}
+
+//
+/// print code version config details and copyright notice
+//
+void printConfig()
+{
+  // code version
+  Serial << F("> code version = ") << VER_MAJ << VER_MIN << F(" beta ") << VER_BETA << endl;
+  Serial << F("> compiled on ") << __DATE__ << F(" at ") << __TIME__ << F(", compiler ver = ") << __cplusplus << endl;
+
+  // copyright
+  Serial << F("> © Sven Rosvall (MERG 3777) 2026") << endl;
+}

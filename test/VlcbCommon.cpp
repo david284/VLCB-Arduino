@@ -4,6 +4,7 @@
 //  The full licence can be found at: http://creativecommons.org/licenses/by-nc-sa/4.0
 
 #include "VlcbCommon.h"
+#include "ArduinoMock.hpp"
 #include "MockStorage.h"
 #include "Parameters.h"
 #include "Controller.h"
@@ -18,11 +19,10 @@ VLCB::Configuration * createConfiguration()
   mockStorage.reset(new MockStorage);
   VLCB::Configuration *configuration = createConfiguration(mockStorage.get());
   configuration->EE_NVS_START = 10;
-  configuration->EE_NUM_NVS = 4;
+  configuration->setNumNodeVariables(4);
   configuration->EE_EVENTS_START = 20;
-  configuration->EE_MAX_EVENTS = 20;
-  configuration->EE_PRODUCED_EVENTS = 1;
-  configuration->EE_NUM_EVS = 2;
+  configuration->setNumEvents(20);
+  configuration->setNumEVs(2);
   configuration->begin();
   return configuration;
 }
@@ -46,19 +46,18 @@ VLCB::Controller createController(VlcbModeParams startupMode, const std::initial
 
   configuration.reset(createConfiguration());
 
-  VLCB::Controller controller(configuration.get(), services);
+  VLCB::Controller controller(configuration.get());
+  controller.setServices(services);
   if (startupMode == MODE_NORMAL)
   {
     configuration->setModuleNormalMode(0x0104);
   }
-  static std::unique_ptr<VLCB::Parameters> params;
-  params.reset(new VLCB::Parameters(*configuration));
-  params->setVersion(1, 1, 'a');
-  params->setModuleId(MODULE_ID);
+  controller.getParams().setVersion(1, 1, 'a');
+  controller.getParams().setModuleId(MODULE_ID);
 
   // assign to Controller
-  controller.setParams(params->getParams());
-  controller.setName(moduleName);
+  controller.updateParamFlags();
+  controller.getModuleConfig()->setName(moduleName);
   return controller;
 }
 
@@ -69,5 +68,16 @@ void process(VLCB::Controller &controller)
   for (int i = 0 ; controller.pendingAction() && i < MAX_PROCESS_COUNT ; ++i)
   {
     controller.process();
+  }
+}
+
+void processWithTasks(VLCB::Controller &controller)
+{
+  const int MAX_TASK_STEPS = 30;
+  process(controller);
+  for (int i = 0 ; controller.pendingTasks() && i < MAX_TASK_STEPS; ++i)
+  {
+    addMillis(5);
+    process(controller);
   }
 }

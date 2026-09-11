@@ -5,28 +5,37 @@
 
 #pragma once
 
+#include <Arduino.h>
+#include <Stream.h>
+
 #include "Service.h"
 #include "Configuration.h"
 #include "Transport.h"
 
 namespace VLCB
 {
-
+/// @brief User interface "service" that communicates via a serial connection
+/// 
+/// This service writes text to indicate current mode and any activity
+/// and allows the user to enter commands to change mode. 
+/// See `VLCB Technical Introduction` document for more details.
 class SerialUserInterface : public Service
 {
 public:
-  SerialUserInterface(Transport *transport);
+  SerialUserInterface(Stream& _serial = Serial) : serial(_serial) {}
 
-  virtual VlcbServiceTypes getServiceID() const override { return SERVICE_ID_HIDDEN; };
+  /// @cond LIBRARY
+  virtual VlcbServiceTypes getServiceID() const override { return SERVICE_ID_NONE; };
   virtual byte getServiceVersionID() const override { return 1; };
 
-  virtual void process(const Action *action) override;
+  virtual void process() override;
+  virtual void processAction(const Action &action) override;
+  /// @endcond
 
 private:
-  Transport * transport;
-  bool isResetRequested = false;
+  Stream& serial;
 
-  void handleAction(const Action *action);
+  void handleAction(const Action &action);
   void processSerialInput();
   void indicateMode(VlcbModeParams i);
 };

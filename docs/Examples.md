@@ -1,6 +1,33 @@
 # Example Sketches
 A few example sketches are included in the `examples` directory.
 These illustrate how this library can be used.
+To test or re-use these example sketches pin assignments and any other
+hardware specific configuration must be adjusted for the board being used.
+
+The example sketches are intended to work with any platform supported by
+Arduino IDE, but there are no guarantees that this will work as we cannot
+test all sketches on all platforms.
+We do regular test compiles of these example sketches for Arduino Uno, 
+Raspberry Pi Pico and ESP32. See [GitHub Workflows](GitHubWorkflowsTutorial.md#2-arduino-firmware-build-workflow).
+
+As this library does not contain any support for hardware CAN controllers,
+all of these examples use the simpler serial CAN transport. 
+Example sketches for specific CAN controllers are provided with the libraries
+that support those controllers.
+
+This serial CAN setup is useful for testing as it does not require any CAN bus equipment
+such as CANUSB or CANETHER.
+Instead, simply use a USB cable connected between a computer and the Arduino
+(same cable as is used for programming the Arduino).
+You can then communicate with the Arduino through the same serial port as you
+use for programming the Arduino.
+
+You can then start FCU (or any other configuration utility) and connect through
+this serial port.
+The FCU will then communicate with your Arduino module as a CBUS module.
+
+Libraries that implement support for hardware CAN controllers contain
+similar example sketches as these but using those CAN controllers instead.
 
 ## Common structure
 All the example sketches have a structure that defines all the necessary
@@ -18,12 +45,7 @@ elements in order.
   Here it runs the controller object to process any VLCB messages coming in and out.
   It also runs any module specific code.
 
-Most sketches included here are configured for communication over CAN bus
-using the MCP2515 transceiver.
-If your module is using another transceiver change the VLCB::CAN2515 for 
-a class that supports that transceiver.
-
-## [VLCB_empty](../examples/VLCB_empty/VLCB_empty.ino)
+## [VLCB_empty](../examples/VLCB_SerialGC_empty/VLCB_SerialGC_empty.ino)
 A bare minimum sketch that only contains the necessary services 
 (```MinimumNodeServiceWithDiagnostics``` and ```CANServiceWithDiagnostics```). 
 It can be used to demonstrate that the Arduino module can communicate with CAN bus
@@ -35,7 +57,7 @@ features of VLCB can be demonstrated.
 
 Note that there are no support for node variables or events.
 
-## [VLCB_1in1out](../examples/VLCB_1in1out/VLCB_1in1out.ino)
+## [VLCB_1in1out](../examples/VLCB_SerialGC_1in1out/VLCB_SerialGC_1in1out.ino)
 A small module that uses one input for producing events and one output that
 is controlled by consumed events. 
 For this it uses NodeVariableService and four services for event support.
@@ -59,17 +81,28 @@ Create an event with EV#1 set to 1 to react to the moduleSwitch.
 Set EV#2 to make moduleLED change.
 Now the LED will react when the switch is changed.
 
+If the moduleSwitch is changed but there is no stored event with EV#1 == 1
+then no event is produced.
+
 This sketch uses services with diagnostics enabled to demonstrate them.
 
-## [VLCB_4in4out](../examples/VLCB_4in4out/VLCB_4in4out.ino)
+## [VLCB_4in4out](../examples/VLCB_SerialGC_4in4out/VLCB_SerialGC_4in4out.ino)
 This is a larger sketch that handles 4 input pins and 4 output pins.
 See full documentation for this sketch in its own [README](../docs/VLCB4in4out_README.md).
 
 This sketch does not enable diagnostics to save memory on small processors
 and also to demonstrate that diagnostics is optional.
 
-## [VLCB_long_message_example](../examples/VLCB_long_message_example/VLCB_long_message_example.ino)
-This is an example sketch that makes use of long messages.
+## [VLCB_4in4out_slot](../examples/VLCB_SerialGC_4in4out_slot/VLCB_SerialGC_4in4out_slot.ino)
+This sketch has a similar functionality to ```VLCB_4in4out``` above but
+is implemented using "event slots" instead of relying on specific event variables.
+
+Events in slots 1-4 are produced when switch 1-4 respectively is activated.
+If there is no event in the slot for an activated switch then a
+default event is created.
+
+Consumed events in slots 10-19 activate LED 1,
+events in slots 20-29 activate LED 2, etc.
 
 ## [VLCB_SerialGC_1in1out](../examples/VLCB_SerialGC_1in1out/VLCB_SerialGC_1in1out.ino)
 This example sketch has the same functionality as [VLCB_1in1out](Examples.md#vlcb_1in1out) above
@@ -84,3 +117,11 @@ use for programming the Arduino.
 You can then start FCU (or any other configuration utility) and connect through
 this serial port.
 The FCU will then communicate with your Arduino module as a CBUS module.
+
+## [VLCB_SerialGC_SerialUI_empty](../examples/VLCB_SerialGC_SerialUI_empty/VLCB_SerialGC_SerialUI_empty.ino)
+This example demonstrates split serial usage on a single node.
+The hardware serial port is dedicated to [SerialGC](../docs/CanTransport.md) for VLCB/GridConnect traffic,
+while a separate SoftwareSerial port is used for [SerialUserInterface](SerialUserInterface.md) commands and status output.
+
+This layout is useful when you want to keep the transport channel and the user console separate.
+It also shows the intended use of the Stream-based serial refactor for either HardwareSerial or SoftwareSerial.

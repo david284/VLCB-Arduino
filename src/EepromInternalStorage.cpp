@@ -12,12 +12,12 @@
 namespace VLCB
 {
 
-void EepromInternalStorage::begin()
+void EepromInternalStorage::begin(unsigned int size)
 {
   // these devices require an explicit begin with the desired emulated size
 
 #if defined ESP32 || defined ESP8266
-  EEPROM.begin(EE_EVENTS_START + (EE_MAX_EVENTS * EE_BYTES_PER_EVENT) + EE_USER_BYTES);
+  EEPROM.begin(size);
 #endif
 
 #ifdef ARDUINO_ARCH_RP2040
@@ -64,7 +64,7 @@ byte EepromInternalStorage::getChipEEPROMVal(unsigned int eeaddress)
 //
 void EepromInternalStorage::write(unsigned int eeaddress, byte data)
 {
-  // DEBUG_SERIAL << F("> write, addr = ") << eeaddress << F(", data = ") << data << endl;
+  // DEBUG_PRINT(F("> write, addr = ") << eeaddress << F(", data = ") << data);
 
   setChipEEPROMVal(eeaddress, data);
 }
@@ -75,6 +75,7 @@ void EepromInternalStorage::write(unsigned int eeaddress, byte data)
 //
 void EepromInternalStorage::writeBytes(unsigned int eeaddress, const byte src[], byte numbytes)
 {
+  // DEBUG_PRINT(F("> write, addr = ") << eeaddress << F(", datalen = ") << numbytes);
   for (byte i = 0; i < numbytes; i++)
   {
     setChipEEPROMVal(eeaddress + i, src[i]);

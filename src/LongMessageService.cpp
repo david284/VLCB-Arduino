@@ -16,8 +16,8 @@
 namespace VLCB
 {
 
-uint16_t crc16(uint8_t *data_p, uint16_t length);
-uint32_t crc32(const char *s, size_t n);
+static uint16_t crc16(uint8_t *data_p, uint16_t length);
+static uint32_t crc32(const char *s, size_t n);
 
 //
 /// subscribe to a range of stream IDs
@@ -33,11 +33,11 @@ void LongMessageService::subscribe(byte *stream_ids, const byte num_stream_ids, 
 	// DEBUG_SERIAL << F("> subscribe: num_stream_ids = ") << num_stream_ids << F(", receive_buff_len = ") << receive_buff_len << endl;
 }
 
-void LongMessageService::process(const Action *action)
+void LongMessageService::processAction(const Action &action)
 {
-  if (action != nullptr && action->actionType == ACT_MESSAGE_IN)
+  if (action.actionType == ACT_MESSAGE_IN)
   {
-    handleMessage(&action->vlcbMessage);
+    handleMessage(&action.vlcbMessage);
   }
 }
 
@@ -84,7 +84,7 @@ bool LongMessageService::sendLongMessage(const void *msg, const unsigned int msg
 	frame.data[6] = 0;
 	frame.data[7] = 0;																																// flags - 0 = standard data message
 
-	bool ret = sendMessageFragment(&frame);														// send the header packet
+	bool ret = sendMessageFragment(frame);														// send the header packet
 	++_send_sequence_num;																															// increment the sending sequence number - it's fine if it wraps around
 
 	// DEBUG_SERIAL << F("> L: message header sent, stream id = ") << _send_stream_id << F(", message length = ") << _send_buffer_len << endl;
@@ -95,9 +95,8 @@ bool LongMessageService::sendLongMessage(const void *msg, const unsigned int msg
 /// the process method is called regularly from the user's loop function
 /// we use this to send the individual fragments of an outgoing message and check the message receive timeout
 //
-bool LongMessageService::process()
+void LongMessageService::process()
 {
-	bool ret = true;
 	byte i;
 	VlcbMessage frame;
 
@@ -133,13 +132,11 @@ bool LongMessageService::process()
 			++_send_buffer_index;
 		}
 
-		ret = sendMessageFragment(&frame);																			// send the data packet
+		sendMessageFragment(frame);																			// send the data packet
 		// DEBUG_SERIAL << F("> L: process: sent message fragment, seq = ") << _send_sequence_num << F(", size = ") << i << endl;
 
 		++_send_sequence_num;
 	}
-
-	return ret;
 }
 
 //
@@ -298,11 +295,11 @@ bool LongMessageService::is_sending()
 //
 /// send next message fragment
 //
-bool LongMessageService::sendMessageFragment(VlcbMessage *frame)
+bool LongMessageService::sendMessageFragment(VlcbMessage & frame)
 {
 	// these are common to all messages
-	frame->len = 8;
-	frame->data[0] = OPC_DTXC;
+	frame.len = 8;
+	frame.data[0] = OPC_DTXC;
 
 	return (controller->sendMessage(frame));
 }
@@ -448,7 +445,7 @@ bool LongMessageServiceEx::sendLongMessage(const void *msg, const unsigned int m
 	frame.data[6] = lowByte(msg_crc);
 	frame.data[7] = 0;																																// flags - 0 = standard data message
 
-	bool ret = sendMessageFragment(&frame);					// send the header packet
+	bool ret = sendMessageFragment(frame);					// send the header packet
 	_send_context[i]->send_sequence_num = 1;																	  			// the next send sequence number - it's fine if it wraps around
 
 	// DEBUG_SERIAL << F("> Lex: message header sent, stream id = ") << stream_id << F(", message length = ") << msg_len << F(", ret = ") << ret << endl;
@@ -459,9 +456,8 @@ bool LongMessageServiceEx::sendLongMessage(const void *msg, const unsigned int m
 /// the process method is called regularly from the user's loop function
 /// we use this to send the individual fragments of any outgoing messages and check the message receive timeouts
 //
-bool LongMessageServiceEx::process()
+void LongMessageServiceEx::process()
 {
-	bool ret = true;
 	byte i;
 	VlcbMessage frame;
 
@@ -499,7 +495,7 @@ bool LongMessageServiceEx::process()
 			++_send_context[context]->send_buffer_index;
 		}
 
-		ret = sendMessageFragment(&frame);																												// send the data packet
+		sendMessageFragment(frame);																												// send the data packet
 		// DEBUG_SERIAL << F("> Lex: process: sent message fragment, seq = ") << _send_context[context]->send_sequence_num << F(", size = ") << i << F(", ret  = ") << ret << endl;
 
 		// release context once message content exhausted
@@ -520,7 +516,6 @@ bool LongMessageServiceEx::process()
 	// increment context counter and wrap
 	++context;
 	context = (context >= _num_send_contexts) ? 0 : context;
-	return ret;
 }
 
 //
@@ -715,7 +710,7 @@ void LongMessageServiceEx::use_crc(bool use_crc)
 
 ///////////////////////////////////////////////////////////////////////////////
 //////// CRC implementations
-uint32_t crc32(const byte *s, size_t n)
+static uint32_t crc32(const byte *s, size_t n)
 {
 	uint32_t crc = 0xFFFFFFFF;
 

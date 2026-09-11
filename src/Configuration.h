@@ -5,9 +5,8 @@
 
 #pragma once
 
-#include <Arduino.h>                // for definition of byte datatype
-
 #include "Storage.h"
+#include "Parameters.h"
 #include "vlcbdefs.hpp"
 
 namespace VLCB
@@ -30,6 +29,7 @@ enum EepromLocations {
 enum FlagBits {
   HEARTBEAT_BIT = 0,
   EVENT_ACK_BIT = 1,
+  FCU_COMPATIBLE_BIT = 2
 };
 
 //
@@ -43,7 +43,7 @@ public:
   Configuration(Storage * theStorage);
   void begin();
 
-  byte findExistingEvent(unsigned int nn, unsigned int en) const;
+  byte findExistingEvent(unsigned int nn, unsigned int en, byte startIndex = 0) const;
   byte findEventSpace() const;
   byte findExistingEventByEv(byte evnum, byte evval) const;
   
@@ -58,7 +58,9 @@ public:
   byte readNV(byte idx) const;
   void writeNV(byte idx, byte val);
 
+  bool isEventSlotInUse(byte eventIndex) const;
   void readEvent(byte idx, byte tarr[EE_HASH_BYTES]) const;
+  void writeEvent(byte eventIndex, unsigned int nn, unsigned int en);
   void writeEvent(byte index, const byte data[EE_HASH_BYTES]);
   void cleareventEEPROM(byte index);
   void resetModule();
@@ -70,23 +72,42 @@ public:
   void setHeartbeat(bool beat);
   void setNodeNum(unsigned int nn);
   void setEventAck(bool ea);
+  void setFcuCompatability(bool fcu);
+
+  void setModuleId(byte manu, byte moduleId);
+  void setVersion(char maj, char min, char beta);
 
   void setResetFlag();
   void clearResetFlag();
   bool isResetFlagSet();
 
+  void setName(const char *mname);
+  const char *getModuleName() const { return _mname; }
+
+  byte getNumNodeVariables() const;
+  byte getNumEvents() const;
+  byte getNumEVs() const;
+  
+  void setNumNodeVariables(int n);
+  void setNumEvents(int n);
+  void setNumEVs(int n);
+
+  bool getFlag(VlcbParamFlags flag);
+  void setFlag(VlcbParamFlags flag);
+  void clearFlag(VlcbParamFlags flag);
+
+  unsigned char getParam(VlcbParams p);
+  Parameters &getParams();
+
   unsigned int EE_NVS_START = LOCATION_RESERVED_SIZE;
-  byte EE_NUM_NVS = 0;
   unsigned int EE_EVENTS_START = 0; // Value calculated in begin() unless set by user.
-  byte EE_MAX_EVENTS = 0;
-  byte EE_NUM_EVS = 0;
-  byte EE_PRODUCED_EVENTS = 0;
   byte EE_BYTES_PER_EVENT; // Value calculated in begin()
   unsigned int EE_FREE_BASE; // Value calculated in begin()
   unsigned int EE_USER_BYTES = 0; // Specified by user in setup for ESP processors.
 
   bool heartbeat;
   bool eventAck;
+  bool fcuCompatible;
   byte CANID;
   VlcbModeParams currentMode;
   unsigned int nodeNum;
@@ -102,6 +123,8 @@ public:
 
 private:
   Storage * storage;
+  const char *_mname;
+  Parameters _mparams;
 
   void setModuleMode(VlcbModeParams m);
   byte makeHash(byte tarr[EE_HASH_BYTES]) const;

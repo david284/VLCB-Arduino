@@ -6,6 +6,9 @@ project(VLCB_Arduino)
 
 set(CMAKE_CXX_STANDARD 11)
 
+# Need the following for debugging in CLion 2026.xx
+set(CMAKE_BUILD_TYPE Debug)
+
 include_directories(examples)
 include_directories(examples/VLCB_1in1out)
 include_directories(examples/VLCB_4in4out)
@@ -15,12 +18,6 @@ include_directories(src)
 include_directories(Arduino)
 
 add_library(hardware_library OBJECT
-        src/CAN2515.cpp
-        src/CAN2515.h
-        src/LED.cpp
-        src/LED.h
-        src/Switch.cpp
-        src/Switch.h
         src/CreateDefaultStorageForPlatform.cpp
         src/DueEepromEmulationStorage.cpp
         src/DueEepromEmulationStorage.h
@@ -30,13 +27,20 @@ add_library(hardware_library OBJECT
         src/EepromInternalStorage.h
         src/FlashStorage.cpp
         src/FlashStorage.h
-        src/LEDUserInterface.cpp
-        src/LEDUserInterface.h
-        src/SerialUserInterface.cpp
-        src/SerialUserInterface.h
         src/SerialGC.h
         src/SerialGC.cpp
         )
+
+# The LED_UI_library was added as a workaround for building test code.
+# It uses hardware and thus cannot be tested properly like the core_library.
+add_library(LED_UI_library OBJECT
+        src/LED.cpp
+        src/LED.h
+        src/Switch.cpp
+        src/Switch.h
+        src/LEDUserInterface.cpp
+        src/LEDUserInterface.h
+)
 
 add_library(core_library OBJECT
 
@@ -52,19 +56,27 @@ add_library(core_library OBJECT
         src/Storage.h
         src/Service.h
         src/Service.cpp
+        src/InternalDiagnosticsService.cpp
+        src/InternalDiagnosticsService.h
         src/LongMessageService.h
         src/MinimumNodeService.cpp
         src/MinimumNodeService.h
         src/MinimumNodeServiceWithDiagnostics.h
         src/MinimumNodeServiceWithDiagnostics.cpp
+        src/SerialUserInterface.cpp
+        src/SerialUserInterface.h
         src/CanService.cpp
         src/CanService.h
         src/CanServiceWithDiagnostics.cpp
         src/CanServiceWithDiagnostics.h
         src/EventConsumerService.cpp
         src/EventConsumerService.h
+        src/AbstractEventTeachingService.cpp
+        src/AbstractEventTeachingService.h
         src/EventTeachingService.cpp
         src/EventTeachingService.h
+        src/EventSlotTeachingService.cpp
+        src/EventSlotTeachingService.h
         src/EventProducerService.cpp
         src/EventProducerService.h
         src/NodeVariableService.cpp
@@ -75,26 +87,33 @@ add_library(core_library OBJECT
         src/GridConnect.cpp
         src/GridConnect.h
         src/CircularBuffer.h
+        src/VLCB.h
+        src/VLCB.cpp
+        src/TimedResponse.h
+        src/TimedResponse.cpp
 )
 
 target_link_libraries(core_library PUBLIC)
 
 add_executable(VLCB_Arduino
         $<TARGET_OBJECTS:core_library>
+        $<TARGET_OBJECTS:LED_UI_library>
         $<TARGET_OBJECTS:hardware_library>
 
         Arduino/Arduino.h
         Arduino/Streaming.h
         Arduino/SPI.h
         Arduino/Wire.h
-        Arduino/ACAN2515.h
         Arduino/EEPROM.h
-        examples/VLCB_1in1out/VLCB_1in1out.ino
-        examples/VLCB_empty/VLCB_empty.ino
-        examples/VLCB_long_message_example/VLCB_long_message_example.ino
-        examples/VLCB_SerialGC_1in1out/VLCB_SerialGC_1in1out.ino)
+        examples/VLCB_SerialGC_1in1out/VLCB_SerialGC_1in1out.ino
+        examples/VLCB_SerialGC_4in4out/VLCB_SerialGC_4in4out.ino
+        examples/VLCB_SerialGC_4in4out_slot/VLCB_SerialGC_4in4out_slot.ino
+        examples/VLCB_SerialGC_empty/VLCB_SerialGC_empty.ino
+        examples/VLCB_SerialGC_SerialUI_empty/VLCB_SerialGC_SerialUI_empty.ino
+)
 
 add_executable(testAll
+        $<TARGET_OBJECTS:LED_UI_library>
         $<TARGET_OBJECTS:core_library>
         
         test/ArduinoMock.cpp
@@ -119,5 +138,8 @@ add_executable(testAll
         test/testGridConnect.cpp
         test/testConfiguration.cpp
         test/testCircularBuffer.cpp
+        test/testLED.cpp
+        test/testSwitch.cpp
         test/MockUserInterface.h
+        test/testTimedResponse.cpp
 )

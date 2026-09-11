@@ -3,16 +3,35 @@
 # VLCB-Arduino
 This project implements an Arduino library for [VLCB](https://github.com/Versatile-LCB/VLCB-documents) running over CAN bus.
 VLCB is an extension of [CBUS](https://www.merg.org.uk/resources/cbus). 
+It fascilitates development of new VLCB modules as Arduino sketches.
 
 CBUS(R) is a registered trademark of Dr. Michael Bolton.
 
 This VLCB library code is based on a [CBUS library](https://github.com/MERG-DEV/CBUS) created by Duncan Greenwood
 and extended by members of [MERG](https://www.merg.org.uk/). 
-See below under Credits.
+See below under [Credits](#credits).
 
-See [Design documents](docs/Design.md) for how this library is structured.
+Full documentation is available in https://svenrosvall.github.io/VLCB-Arduino 
 
-There will be documentation for sketch authors that describe how to use this library.
+## Developing a sketch for a VLCB module
+
+This library is intended for module developers to make it as easy as
+possible to create new VLCB module types.
+You don't need to understand the internals of the library to use it.
+Refer to the [sketch development](docs/SketchDevelopment.md) document for
+more information on how to develop your own VLCB module.
+
+## Library development
+
+This VLCB library is built with an object-oriented architecture
+described in the [design document](docs/Design.md).
+It uses a `Controller` object for the core tasks, a `Configuration`
+object for storing module configurations and a set of [services](docs/Service.md).
+The [Full API documentation](https://svenrosvall.github.io/VLCB-Arduino/html.library/index.html) describes all of these
+objects.
+
+If you want to share improvements please create a branch of the respository
+and create a pull request.
 
 ## File Structure
 This library consists of the following sub-directories and files:
@@ -43,29 +62,34 @@ CmakeLists.txt
 ## Dependencies
 Note that this library depends on a number of other libraries which must also be downloaded and included in the sketch:
 
-* [ACAN2515](https://github.com/pierremolinaro/acan2515) - CAN bus transport using the MCP2515 controller
 * [Streaming](https://github.com/janelia-arduino/Streaming) - C++ style output
 
 ## Hardware
 
-Currently supports the MCP2515 and MCP2565 CAN controller ICs via the ACAN2515 library.
+This library only contains CAN transport over serial communication which does
+not require any external dependencies.
+Implementation using specific CAN harddware are provided in separate libraries.
+
+Supports for the MCP2515 and MCP2565 CAN controller ICs via the ACAN2515 library
+is provided in the repository [VCAN2515](https://github.com/SvenRosvall/VCAN2515).
+
+Support for Raspberry Pi Pico boards is provided by Martin Da Costa
+in the repository [VCAN2040](https://github.com/MartinDaCosta53/VCAN2040).
 
 ## Getting help and support
 
-At the moment this library is still in early development and thus not fully supported.
-
 If you have any questions or suggestions please contact the library maintainers
-by email to vlcb@rosvall.ie or create an issue in GitHub.
+by email to vlcb@rosvall.ie or create an [issue in GitHub](https://github.com/SvenRosvall/VLCB-Arduino/issues).
 
 ## Credits
 
 * Duncan Greenwood - Created the CBUS library for Arduinos which this VLCB library is based on.
-* Sven Rosvall - Converted the CBUS library into this code base.
-* Martin Da Costa - Contributor
+* Sven Rosvall - Developer. Converted the CBUS library into this code base.
+* Martin Da Costa - Developer
 * John Fletcher - Contributor
 * Chris Andrews - Contributor
 * David Ellis - Contributor
-* brocci - Contributor to the CBUS library
+* Bruno Rocci - Contributor to the CBUS library
 
 ## License
 

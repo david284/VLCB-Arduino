@@ -13,6 +13,7 @@
 
 namespace std
 {
+  /// Convenience class for use with initializer lists, i.e. bracketed list of items: { a, b, ...}
   template<class E>
     class initializer_list
     {
@@ -37,6 +38,7 @@ namespace std
       constexpr initializer_list(const E* a, size_t l)
         : array(a), len(l) { }
         
+    private:
       const E* array;
       size_t len;
     };

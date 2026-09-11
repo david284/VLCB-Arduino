@@ -12,14 +12,13 @@
 #include "Controller.h"
 #include "MinimumNodeServiceWithDiagnostics.h"
 #include "CanServiceWithDiagnostics.h"
-#include "Parameters.h"
 #include "VlcbCommon.h"
 #include "ArduinoMock.hpp"
 #include "MockCanTransport.h"
 
 namespace
 {
-std::unique_ptr<VLCB::MinimumNodeServiceWithDiagnostics> minimumNodeService;
+std::unique_ptr<VLCB::MinimumNodeService> minimumNodeService;
 
 // Use MockCanTransport to test CanTransport class.
 std::unique_ptr<MockCanTransport> mockCanTransport;
@@ -30,7 +29,7 @@ VLCB::Controller createController(VlcbModeParams startupMode = MODE_NORMAL)
 
   mockCanTransport.reset(new MockCanTransport);
 
-  static std::unique_ptr<VLCB::CanServiceWithDiagnostics> canService;
+  static std::unique_ptr<VLCB::CanService> canService;
   canService.reset(new VLCB::CanServiceWithDiagnostics(mockCanTransport.get()));
 
   VLCB::Controller controller = ::createController(startupMode, {minimumNodeService.get(), canService.get()});
@@ -48,7 +47,7 @@ void testServiceDiscovery()
   VLCB::CANFrame msg = {0x11, false, false, 4, {OPC_RQSD, 0x01, 0x04, 0}};
   mockCanTransport->setNextMessage(msg);
 
-  process(controller);
+  processWithTasks(controller);
 
   // Verify sent messages.
   assertEquals(3, mockCanTransport->sent_frames.size());
@@ -83,7 +82,8 @@ void testServiceDiscoveryCanSvc()
   assertEquals(OPC_ESD, mockCanTransport->sent_frames[0].data[0]);
   assertEquals(2, mockCanTransport->sent_frames[0].data[3]); // index
   assertEquals(SERVICE_ID_CAN, mockCanTransport->sent_frames[0].data[4]); // service ID
-  // Not testing service data bytes.
+
+  assertEquals(mockCanTransport->getHardwareType(), mockCanTransport->sent_frames[0].data[5]); // CAN hardware type
 }
 
 void testCanidEnumerationOnUserAction()
@@ -303,7 +303,7 @@ void testRequestAllDiagnosticsCanService()
   VLCB::CANFrame msg = {0x11, false, false, 5, {OPC_RDGN, 0x01, 0x04, serviceIndex, 0}};
   mockCanTransport->setNextMessage(msg);
 
-  process(controller);
+  processWithTasks(controller);
 
   // Verify sent messages.
   assertEquals(19, mockCanTransport->sent_frames.size());

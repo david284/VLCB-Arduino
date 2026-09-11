@@ -9,70 +9,41 @@ A list of services provided in this VLCB library are listed in the section [Prov
 User defined services are encouraged to implement new functionality that is not covered
 by the provided services
 
-The ```Service``` interface looks like this:
-```C++
-class Service
-{
-public:
-  virtual void setController(Controller *controller) {}
-  virtual void begin() {}
-  virtual byte getServiceID() = 0;
-  virtual byte getServiceVersionID() = 0;
-
-  virtual void process(Action * action) = 0;
-};
-```
-
-The methods in this interface are:
-
-setController
-: set a pointer to the controller object in the implementing class.
-There is a default implementation here so the implementing class does not need to implement
-it if it doesn't need a pointer to the controller.
-
-begin
-: This optional method is called at the beginning of the Arduino sketch.
-Define this method for the service to do any setup required at the beginning. 
-
-getServiceID
-: Shall return a unique ID for this service.
-This ID is used by configuration utilities to identify the service type.
-
-getServiceVersionID
-: Shall return the version of the implementation of this service.
-This version is used by configuration utilities to identify any updated features in the
-service. 
-There is no need to bump up the version number for minor changes and bug fixes. 
-
-process
-: This method that be called regularly. 
-It has a pointer to an Action that needs to be processed or a null pointer if there is
-no Action to be processed.
-Use this for any processing that needs to be performed now and then such as polling for
-changes of input pins.
-
+The ```Service``` interface is described in [Service](https://svenrosvall.github.io/VLCB-Arduino/html.library/class_v_l_c_b_1_1_service.html)
+A complete list of implementing service classes are also included there.
 
 ## Services provided in this VLCB library
 
-### MinimumNodeService
+Below is a list of services provided by the VLCB library that 
+can be used in a VLCB module sketch.
+
+The services listed below do not include diagnostics.
+Such diagnostics are optional and provided by child classes with the suffix "WithDiagnostics".
+E.g. The CAN service class ```CanService``` does not provide diagnostics
+while the class ```CanServiceWithDiagnostics``` does provide diagnostics.
+Diagnostics is made optional to save memory on smaller Arduino systems.
+
+Note: Not all services have a diagnostics enabled counterpart yet.
+
+### [MinimumNodeService](MinimumNodeService.md)
 Handles the OP-codes for managing nodes.
 It is required for use in a VLCB module.
 
-### CanService
+### [CanService](https://svenrosvall.github.io/VLCB-Arduino/html.library/class_v_l_c_b_1_1_can_service.html)
 This is a service that is specifically for modules on a CAN bus and is required for such modules.
 Handles OP-codes CANID and ENUM for re-assigning CANID for the module.
 
 The ```CanService``` works in tandem with a CAN transport object, derived from the 
 [```CanTransport```](CanTransport.md) interface, which must be provided as an argument to its constructor.
 
-### NodeVariableService
+### [NodeVariableService](https://svenrosvall.github.io/VLCB-Arduino/html.library/class_v_l_c_b_1_1_node_variable_service.html)
 Handles configuration of node variables for the module.
 
-### EventConsumerService
+### [EventConsumerService](https://svenrosvall.github.io/VLCB-Arduino/html.library/class_v_l_c_b_1_1_event_consumer_service.html)
 Handles incoming events.
 To use this the module application needs to register an event handler function with
 ```setEventHandler()```.
-The signature of the handler function shall be
+The signature of the handler function shall be:
 ```C++
 void handler(byte index, const VlcbMessage *msg);
 ```
@@ -80,28 +51,52 @@ The arguments provided to the handler function are:
 * ```index``` : The index number of the incoming event in the event table.
 * ```msg``` : The message structure that contains the event.
 
-### EventProducerService
+### [EventProducerService](https://svenrosvall.github.io/VLCB-Arduino/html.library/class_v_l_c_b_1_1_event_producer_service.html)
 Facilitates sending events. 
-Call the ```sendEvent()``` from the application code.
-The parameters should be
-* ```state``` : A flag to say if the event is an on or off event.
-* ```index``` : An index for the produced event that relates to the event table entry.
-* ```data1``` - ```data3``` : Up to three data bytes to go with the event.
+The events can either be:
+* Direct events where the event number is given and the node number of the
+node is used. Optionally a node number can be provided for spoofed node numbers.
+* Taught events that are stored in the events table. These events are
+accessed by an index into the events table.
 
-### EventTeachingService
-Facilitates teaching events. 
+### [EventTeachingService](https://svenrosvall.github.io/VLCB-Arduino/html.library/class_v_l_c_b_1_1_event_teaching_service.html)
+Facilitates teaching events using classic event teaching.
+Events are taught (created), updated and read by using the event node number
+and event number as key to the event, or putting the node into learn mode.
+This means that the node number / event number pair must be unique.
+
 Both consumed and produced events can be taught.
 
-### ConsumeOwnEventsService
-This service facilitates sent events to be received by the same module.
+#### Event validation
+A user sketch can register an event validation callback with 
+```setEventValidator()```. 
+The signature of the validator function shall be:
+```C++
+byte eventValidator(int nn, int en, byte evNum, byte evValue);
+```
+It shall return a response code ```GRSP_OK``` (0) if the taught event is accepted
+or any other ```GRSP_XXX``` code or ```CMDERR_XXX``` code for failure.
+For failures this error code will be the response to EVLRN request.
 
-### LedUserInterface
+### [EventSlotTeachingService](https://svenrosvall.github.io/VLCB-Arduino/html.library/class_v_l_c_b_1_1_event_slot_teaching_service.html)
+Facilitates teaching events using indexed (slot) event teaching.
+Here events are taught (created), updated and read by using event indexes.
+
+The same event (with the same node number / event number) can be taught
+to different slots.
+
+### [ConsumeOwnEventsService](https://svenrosvall.github.io/VLCB-Arduino/html.library/class_v_l_c_b_1_1_consume_own_events_service.html)
+This service facilitates sent events to be received by the same module.
+Any event generated by the ```EventProducerService``` will then be handled
+by the ```EventConsumerService```.
+
+### [LedUserInterface](https://svenrosvall.github.io/VLCB-Arduino/html.library/class_v_l_c_b_1_1_l_e_d_user_interface.html)
 Manages the green and yellow LEDs and also the push button on the VLCB module.
 Updates the LEDs based on activities on the module. 
 When the push button is pressed sends an Action to tell the other services that the
 user has requested some action.
 
-### SerialUserInterface
+### [SerialUserInterface](https://svenrosvall.github.io/VLCB-Arduino/html.library/class_v_l_c_b_1_1_serial_user_interface.html)
 Provides a user interface on the serial port on the Arduino.
 Prints status messages and also handles actions the user enters on the serial port.
 See more details in [SerialUserInterface](SerialUserInterface.md) documentation.

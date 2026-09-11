@@ -20,6 +20,7 @@ public:
   virtual bool available() override;
   virtual VLCB::CANFrame getNextCanFrame() override;
   virtual bool sendCanFrame(VLCB::CANFrame *frame) override;
+  virtual byte getHardwareType() override { return 47; }
   
   virtual void reset() override;
 
@@ -27,6 +28,8 @@ public:
   virtual unsigned int transmitCounter() override { return 42; }
   virtual unsigned int receiveErrorCounter() override { return 0; }
   virtual unsigned int transmitErrorCounter() override { return 0; }
+  virtual unsigned int receiveBufferSize() override { return 0; };
+  virtual unsigned int transmitBufferSize() override { return 0; };
   virtual unsigned int receiveBufferUsage() override { return 0; };
   virtual unsigned int transmitBufferUsage() override { return 0; };
   virtual unsigned int receiveBufferPeak() override { return 0; };
