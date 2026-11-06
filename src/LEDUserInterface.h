@@ -22,11 +22,16 @@ namespace VLCB
 class LEDUserInterface : public Service
 {
 public:
+  LEDUserInterface() {}
   LEDUserInterface(byte greenLedPin, byte yellowLedPin, byte pushButtonPin);
+  
+  void setGreenLedPin(byte pin);
+  void setYellowLedPin(byte pin);
+  void setSwitchPin(byte pin);
 
   /// @cond LIBRARY
-  virtual VlcbServiceTypes getServiceID() const override { return SERVICE_ID_NONE; };
-  virtual byte getServiceVersionID() const override { return 1; };
+  virtual VlcbServiceTypes getServiceID() const override { return SERVICE_ID_NONE; }
+  virtual byte getServiceVersionID() const override { return 1; }
 
   bool isButtonPressed();
   virtual void process() override;
@@ -39,7 +44,6 @@ private:
   Switch pushButton;
 
   bool resetRequested();
-  void handleAction(const Action &action);
   void checkRequestedAction();
 
   void indicateMode(VlcbModeParams mode);

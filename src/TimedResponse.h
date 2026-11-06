@@ -25,7 +25,7 @@ public:
   class Task
   {
   public:
-    Task(Controller * controller) : controller(controller) {}
+    explicit Task(Controller * controller) : controller(controller) {}
     Task() : controller(nullptr) {}
     virtual ~Task() = default;
     virtual Result runStep() = 0;
@@ -47,6 +47,7 @@ public:
   }
 
 private:
+  // TODO: These task pointers are owning pointers which are not deleted if overwritten by buffer overflows.
   CircularBuffer<Task *> tasks;
   unsigned long lastTaskTime = 0;
 };
